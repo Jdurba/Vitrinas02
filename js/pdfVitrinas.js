@@ -2,94 +2,10 @@
 // PDF VITRINAS — Generador nativo jsPDF
 // ============================================
 
-// ── MODAL POPUP ─────────────────────────────
+// ── DISPARADOR PDF ──────────────────────────
+// Cliente y Nº Pedido se recogen en el formulario (state), no en modal.
 function mostrarModalPDF() {
-    // Eliminar modal previo si existe
-    const prev = document.getElementById('pdfModal');
-    if (prev) prev.remove();
-
-    const overlay = document.createElement('div');
-    overlay.id = 'pdfModal';
-    overlay.style.cssText = `
-        position:fixed; inset:0; z-index:10000;
-        background:rgba(0,0,0,0.5);
-        display:flex; align-items:center; justify-content:center;
-        animation: pdfFadeIn 0.2s ease-out;
-    `;
-
-    overlay.innerHTML = `
-        <style>
-            @keyframes pdfFadeIn { from{opacity:0} to{opacity:1} }
-            @keyframes pdfSlideIn { from{transform:translateY(-20px);opacity:0} to{transform:translateY(0);opacity:1} }
-        </style>
-        <div style="
-            background:white; border-radius:10px; padding:28px 32px;
-            width:420px; max-width:90vw;
-            box-shadow:0 10px 40px rgba(0,0,0,0.3);
-            animation: pdfSlideIn 0.25s ease-out;
-            font-family:'Segoe UI',system-ui,sans-serif;
-        ">
-            <h3 style="margin:0 0 18px; color:#2c3e50; font-size:1.1rem; font-weight:600;">
-                📄 Datos para el informe PDF
-            </h3>
-
-            <label style="display:block; margin-bottom:5px; font-size:0.85rem; font-weight:600; color:#2c3e50;">
-                Nº Pedido
-            </label>
-            <input type="text" id="pdfPedido" placeholder="Ej: S2200" style="
-                width:100%; padding:10px 12px; border:2px solid #e0e0e0; border-radius:6px;
-                font-size:0.95rem; margin-bottom:14px; outline:none;
-                transition:border-color 0.2s;
-            " onfocus="this.style.borderColor='#3498db'" onblur="this.style.borderColor='#e0e0e0'">
-
-            <label style="display:block; margin-bottom:5px; font-size:0.85rem; font-weight:600; color:#2c3e50;">
-                Cliente / Referencia
-            </label>
-            <input type="text" id="pdfCliente" placeholder="Ej: Carpintería Martínez" style="
-                width:100%; padding:10px 12px; border:2px solid #e0e0e0; border-radius:6px;
-                font-size:0.95rem; margin-bottom:22px; outline:none;
-                transition:border-color 0.2s;
-            " onfocus="this.style.borderColor='#3498db'" onblur="this.style.borderColor='#e0e0e0'">
-
-            <div style="display:flex; gap:10px; justify-content:flex-end;">
-                <button id="pdfCancelar" style="
-                    padding:10px 22px; border:2px solid #ddd; border-radius:6px;
-                    background:white; color:#666; font-size:0.9rem; font-weight:600;
-                    cursor:pointer; transition:all 0.2s;
-                " onmouseover="this.style.borderColor='#e74c3c';this.style.color='#e74c3c'"
-                  onmouseout="this.style.borderColor='#ddd';this.style.color='#666'">
-                    Cancelar
-                </button>
-                <button id="pdfGenerar" style="
-                    padding:10px 22px; border:none; border-radius:6px;
-                    background-image:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
-                    color:white; font-size:0.9rem; font-weight:600;
-                    cursor:pointer; transition:all 0.2s;
-                " onmouseover="this.style.opacity='0.85';this.style.transform='translateY(-1px)'"
-                  onmouseout="this.style.opacity='1';this.style.transform='translateY(0)'">
-                    Generar PDF
-                </button>
-            </div>
-        </div>
-    `;
-
-    document.body.appendChild(overlay);
-
-    // Cerrar al clicar fuera
-    overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) overlay.remove();
-    });
-
-    document.getElementById('pdfCancelar').addEventListener('click', () => overlay.remove());
-    document.getElementById('pdfGenerar').addEventListener('click', () => {
-        const pedido  = document.getElementById('pdfPedido').value.trim();
-        const cliente = document.getElementById('pdfCliente').value.trim();
-        overlay.remove();
-        generarPDFVitrinas(pedido, cliente);
-    });
-
-    // Focus al primer campo
-    setTimeout(() => document.getElementById('pdfPedido').focus(), 100);
+    generarPDFVitrinas(state.numPedido || '', state.cliente || '');
 }
 
 // ── CONVERTIR SVG del DOM a imagen PNG (dataURL) ─────
@@ -174,7 +90,7 @@ async function generarPDFVitrinas(pedido, cliente) {
         const { jsPDF } = window.jspdf;
         const pdf = new jsPDF('p', 'mm', 'a4');
         const W = 210, H = 297;
-        const mL = 14, mR = 14;
+        const mL = 14, mR = 14, mB = 12;
         const contentW = W - mL - mR;
         let y = 0; // cursor vertical
 
@@ -186,6 +102,7 @@ async function generarPDFVitrinas(pedido, cliente) {
         const tieneVidrio   = state.vidrioMontado;
         const n             = state.bisagrasTotal;
         const bisagrasFijas = !!m?.bisagras_fijas;
+        const sinMec        = state.sinMecanizado;
 
         // Medidas vidrio (calculadas en configurador.js → calcularVidrio)
         const vidrioAltura = state.vidrioAlto;
@@ -202,28 +119,72 @@ async function generarPDFVitrinas(pedido, cliente) {
             mecanizado.push(acum);
         }
 
-        // ── CABECERA AZUL ──
-        pdf.setFillColor(44, 62, 80);
-        pdf.rect(0, 0, W, 16, 'F');
+        // ¿Reparto equidistante original? Detección autónoma (no depende de fabricacion.js):
+        // equidistante ≡ B1/B2 en su valor por defecto Y todas las C iguales entre sí
+        // (Cn puede diferir 1 céntimo por el redondeo del reparto).
+        let esEquidistante = false;
+        if (n > 1) {
+            const B1def = (CONFIG.bisagras_B1_defecto ?? CONFIG.bisagras_B_minimo ?? 100);
+            const B2def = (CONFIG.bisagras_B2_defecto ?? CONFIG.bisagras_B_minimo ?? 100);
+            const igual = (a, b) => Math.abs(a - b) < 0.02;
+            const bOk = igual(fabState.b1, B1def) && igual(fabState.b2, B2def);
 
-        // Logo Adinor
-        const logoUrl = 'https://raw.githubusercontent.com/Jdurba/Vitrinas/main/Imagenes/LogoAdinorBlanco.png';
-        const logoData = await cargarImagenComoData(logoUrl);
-        if (logoData) {
-            const logoFit = fitImageInBox(logoData.naturalWidth, logoData.naturalHeight, 36, 12);
-            pdf.addImage(logoData.dataUrl, 'PNG', mL + logoFit.offsetX, 2 + logoFit.offsetY, logoFit.w, logoFit.h);
-        } else {
-            pdf.setTextColor(255, 255, 255);
-            pdf.setFontSize(16);
-            pdf.setFont('helvetica', 'bold');
-            pdf.text('ADINOR', mL + 2, 10.5);
+            // allCs = [C1..Cn-1 editables, Cn]. Las editables deben ser iguales entre sí;
+            // Cn puede diferir por el redondeo del reparto (absorbe el resto).
+            let csUniformes = true;
+            const editables = fabState.csEditables;
+            if (editables.length > 0) {
+                const ref = editables[0];
+                for (const c of editables) {
+                    if (Math.abs(c - ref) > 0.02) { csUniformes = false; break; }
+                }
+                // Cn (último de allCs) puede desviarse hasta ~0,5 mm por redondeo acumulado
+                const cnVal = allCs[allCs.length - 1];
+                if (Math.abs(cnVal - ref) > 0.5) csUniformes = false;
+            }
+            esEquidistante = bOk && csUniformes;
         }
 
-        pdf.setTextColor(255, 255, 255);
-        pdf.setFontSize(13);
-        pdf.setFont('helvetica', 'normal');
-        pdf.text('Hoja de preparación de vitrinas de aluminio', W / 2, 10.5, { align: 'center' });
-        y = 22;
+        // ── CABECERA (estilo A4 presupuesto: fondo blanco + borde inferior) ──
+        const AZUL = [45, 58, 75];   // #2D3A4B
+
+        // Logo Adinor (versión negra del ecosistema)
+        const logoUrl = 'https://jdurba.github.io/General/img/LOGO_2025_Negro.png';
+        const logoData = await cargarImagenComoData(logoUrl);
+        if (logoData) {
+            const logoFit = fitImageInBox(logoData.naturalWidth, logoData.naturalHeight, 34, 13);
+            pdf.addImage(logoData.dataUrl, 'PNG', mL + logoFit.offsetX, 8 + logoFit.offsetY, logoFit.w, logoFit.h);
+        } else {
+            pdf.setTextColor(...AZUL);
+            pdf.setFontSize(16);
+            pdf.setFont('helvetica', 'bold');
+            pdf.text('ADINOR', mL, 15);
+        }
+
+        pdf.setTextColor(...AZUL);
+        pdf.setFontSize(15);
+        pdf.setFont('helvetica', 'bold');
+        // Centrado en el espacio entre el logo y el margen derecho
+        const tituloLeft = mL + 34 + 6;   // fin del logo (ancho 34) + holgura
+        const tituloCentro = tituloLeft + (W - mR - tituloLeft) / 2;
+        pdf.text('HOJA DE PREPARACIÓN DE VITRINAS', tituloCentro, 14, { align: 'center' });
+
+        // Borde inferior de cabecera (fina y separada del logo)
+        pdf.setDrawColor(...AZUL);
+        pdf.setLineWidth(0.4);
+        pdf.line(mL, 23, W - mR, 23);
+        y = 31;
+
+        // Helper: barra de sección estilo A4 (gris con texto oscuro mayúsculas)
+        function seccion(texto, xx, ancho, yy) {
+            pdf.setFillColor(215, 216, 214);   // #d7d8d6
+            pdf.setDrawColor(183, 184, 182);   // #b7b8b6
+            pdf.setLineWidth(0.3);
+            pdf.rect(xx, yy, ancho, 5.5, 'FD');
+            pdf.setTextColor(51, 51, 51);      // #333
+            pdf.setFontSize(8); pdf.setFont('helvetica', 'bold');
+            pdf.text(texto.toUpperCase(), xx + 3, yy + 3.8);
+        }
 
         // ── CAMPOS ──
         pdf.setTextColor(100, 100, 100);
@@ -233,25 +194,28 @@ async function generarPDFVitrinas(pedido, cliente) {
         const campoIzq = mL;
         const campoDer = W / 2 + 5;
 
-        function campoPDF(x, yy, label, valor) {
+        // gapLabel: separación etiqueta→valor; anchoLinea: largo del subrayado desde el valor
+        function campoPDF(x, yy, label, valor, gapLabel, anchoLinea) {
             pdf.setFont('helvetica', 'normal');
             pdf.setTextColor(120, 120, 120);
             pdf.text(label, x, yy);
+            const valX = x + gapLabel;
             if (valor) {
                 pdf.setFont('helvetica', 'bold');
                 pdf.setTextColor(30, 30, 30);
-                pdf.text(valor, x + 28, yy);
+                pdf.text(valor, valX, yy);
             }
-            // Línea bajo el valor
+            // Línea bajo el valor, pegada a la etiqueta
             pdf.setDrawColor(200, 200, 200);
             pdf.setLineWidth(0.3);
-            pdf.line(x + 27, yy + 1, x + 80, yy + 1);
+            pdf.line(valX - 1, yy + 1, valX + anchoLinea, yy + 1);
         }
 
-        campoPDF(campoIzq, y,     'Fecha',         fecha);
-        campoPDF(campoDer, y,      'Nº Pedido',     pedido);
-        campoPDF(campoIzq, y + 7,  'Cliente / Ref.', cliente);
-        campoPDF(campoDer, y + 7,  'Cantidad',      `${state.cantidad} unidad${state.cantidad > 1 ? 'es' : ''}`);
+        // Izquierda: Nº Pedido / Cliente (bloque más largo). Derecha: Fecha / Cantidad.
+        campoPDF(campoIzq, y,      'Nº Pedido', pedido,  20, 68);
+        campoPDF(campoDer, y,      'Fecha',     fecha,   20, 45);
+        campoPDF(campoIzq, y + 7,  'Cliente',   cliente, 20, 68);
+        campoPDF(campoDer, y + 7,  'Cantidad',  `${state.cantidad} unidad${state.cantidad > 1 ? 'es' : ''}`, 20, 45);
         y += 16;
 
         // ── PERFIL + ACABADO (texto) ──
@@ -272,7 +236,7 @@ async function generarPDFVitrinas(pedido, cliente) {
 
         const datosX = mL + imgBoxW + 8;
         pdf.setFontSize(10);
-        pdf.setTextColor(44, 62, 80);
+        pdf.setTextColor(...AZUL);
         pdf.setFont('helvetica', 'bold');
         pdf.text(`Perfil: ${state.modelo} — ${m?.nombre || ''}`, datosX, y + 6);
         pdf.setFont('helvetica', 'normal');
@@ -285,30 +249,43 @@ async function generarPDFVitrinas(pedido, cliente) {
         }
         pdf.text(`Vidrio: ${vidrioTexto}`, datosX, y + 18);
 
+        // Medidas del vidrio real (alto × ancho), como línea suelta (no tabla)
+        if (tieneVidrio) {
+            pdf.setFont('helvetica', 'normal');
+            pdf.setTextColor(...AZUL);
+            pdf.text(`Medidas vidrio: ${vidrioAltura} × ${vidrioAncho} mm`, datosX, y + 24);
+        }
+
         y += imgBoxH + 6;
 
         // ── LÍNEA SEPARADORA ──
-        pdf.setDrawColor(220); pdf.setLineWidth(0.4);
+        pdf.setDrawColor(...AZUL); pdf.setLineWidth(0.3);
         pdf.line(mL, y, W - mR, y);
         y += 5;
 
         // ═══════════════════════════════════════
-        // DOS COLUMNAS: izquierda (tablas) | derecha (SVGs)
+        // ÁREA BAJO CABECERA: dos bloques iguales
+        //   Bloque 2 (Bisagras): puerta + grid | vista trasera
+        //   Bloque 3 (Tirador):  texto tirador | vista frontal
         // ═══════════════════════════════════════
         const colIzqW = contentW - 72;  // ~110mm
         const colDerW = 68;             // para SVGs
         const colDerX = mL + colIzqW + 4;
-        const yStartCols = y;
+
+        const areaTop = y;              // inicio del área (tras separador)
+        const areaBottom = H - mB;      // sin pie: hasta el margen inferior
+        const bloqueAlto = (areaBottom - areaTop) / 2;
+        const bloque2Top = areaTop;
+        const bloque3Top = areaTop + bloqueAlto;
+        const yStartCols = areaTop;
 
         // ── COL IZQ: Tabla dimensiones puerta ──
-        pdf.setFillColor(44, 62, 80);
-        pdf.rect(mL, y, colIzqW, 5, 'F');
-        pdf.setTextColor(255); pdf.setFontSize(8); pdf.setFont('helvetica', 'bold');
-        pdf.text('DIMENSIONES DE LA PUERTA', mL + 3, y + 3.5);
+        seccion('Dimensiones de la puerta', mL, colIzqW, y);
         y += 7;
 
-        // Tabla simple 1 fila
-        const tblX = mL;
+        // Tablas indentadas respecto a la barra de sección (sangría)
+        const SANGRIA = 12;
+        const tblX = mL + SANGRIA;
         pdf.setFontSize(8.5); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(60);
         pdf.setFillColor(232, 232, 232);
         pdf.rect(tblX, y, 40, 5, 'FD'); pdf.rect(tblX + 40, y, 40, 5, 'FD');
@@ -322,41 +299,9 @@ async function generarPDFVitrinas(pedido, cliente) {
         pdf.text(String(state.anchoReal),  tblX + 60, y + 4, { align: 'center' });
         y += 8;
 
-        // ── COL IZQ: Tabla vidrio ──
-        if (tieneVidrio) {
-            pdf.setFillColor(44, 62, 80);
-            pdf.rect(mL, y, colIzqW, 5, 'F');
-            pdf.setTextColor(255); pdf.setFontSize(8); pdf.setFont('helvetica', 'bold');
-            pdf.text('DIMENSIONES DEL VIDRIO', mL + 3, y + 3.5);
-            y += 7;
-
-            pdf.setFontSize(8.5); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(60);
-            pdf.setFillColor(232, 232, 232);
-            pdf.rect(tblX, y, 27, 5, 'FD'); pdf.rect(tblX + 27, y, 27, 5, 'FD'); pdf.rect(tblX + 54, y, 27, 5, 'FD');
-            pdf.text('Descuento', tblX + 13.5, y + 3.5, { align: 'center' });
-            pdf.text('Alto vidrio', tblX + 40.5, y + 3.5, { align: 'center' });
-            pdf.text('Ancho vidrio', tblX + 67.5, y + 3.5, { align: 'center' });
-            y += 5;
-
-            pdf.setFillColor(238, 246, 255);
-            pdf.rect(tblX, y, 27, 5.5, 'FD'); pdf.rect(tblX + 27, y, 27, 5.5, 'FD'); pdf.rect(tblX + 54, y, 27, 5.5, 'FD');
-            pdf.setFont('helvetica', 'normal'); pdf.setTextColor(60);
-            const descAlt = m?.DescV_Alt || 0;
-            const descAnc = m?.DescV_Anc || 0;
-            const descTxt = descAlt === descAnc ? `-${descAlt} mm` : `-${descAlt}/-${descAnc} mm`;
-            pdf.text(descTxt, tblX + 13.5, y + 4, { align: 'center' });
-            pdf.setTextColor(194, 34, 34); pdf.setFont('helvetica', 'bold');
-            pdf.text(String(vidrioAltura), tblX + 40.5, y + 4, { align: 'center' });
-            pdf.text(String(vidrioAncho),  tblX + 67.5, y + 4, { align: 'center' });
-            y += 8;
-        }
-
         // ── COL IZQ: Bisagras ──
         const manoTexto = fabState.mano === 'izquierda' ? 'Mano izquierda' : 'Mano derecha';
-        pdf.setFillColor(44, 62, 80);
-        pdf.rect(mL, y, colIzqW, 5, 'F');
-        pdf.setTextColor(255); pdf.setFontSize(8); pdf.setFont('helvetica', 'bold');
-        pdf.text(`BISAGRAS — ${manoTexto.toUpperCase()}`, mL + 3, y + 3.5);
+        seccion(`Bisagras — ${manoTexto}`, mL, colIzqW, y);
         y += 7;
 
         // Nº bisagras
@@ -366,7 +311,11 @@ async function generarPDFVitrinas(pedido, cliente) {
         pdf.text(`Nº Bisagras: ${n}`, tblX + 27, y + 3.5, { align: 'center' });
         y += 6;
 
-        if (!bisagrasFijas) {
+        if (sinMec) {
+            pdf.setFontSize(8); pdf.setFont('helvetica', 'italic'); pdf.setTextColor(120);
+            pdf.text('Marco limpio — sin mecanizado de bisagras', mL + 3, y + 3);
+            y += 7;
+        } else if (!bisagrasFijas) {
             // Cabecera tabla
             pdf.setFillColor(232, 232, 232);
             pdf.rect(tblX, y, 18, 5, 'FD'); pdf.rect(tblX + 18, y, 25, 5, 'FD'); pdf.rect(tblX + 43, y, 25, 5, 'FD');
@@ -380,37 +329,43 @@ async function generarPDFVitrinas(pedido, cliente) {
             pdf.setFont('helvetica', 'normal'); pdf.setTextColor(30);
             pdf.rect(tblX, y, 18, 5, 'D'); pdf.rect(tblX + 18, y, 25, 5, 'D'); pdf.rect(tblX + 43, y, 25, 5, 'D');
             pdf.text('B1', tblX + 9, y + 3.5, { align: 'center' });
-            pdf.text(String(fabState.b1), tblX + 30.5, y + 3.5, { align: 'center' });
-            pdf.text(String(mecanizado[0]), tblX + 55.5, y + 3.5, { align: 'center' });
+            pdf.text(fmt(fabState.b1), tblX + 30.5, y + 3.5, { align: 'center' });
+            pdf.text(fmt(mecanizado[0]), tblX + 55.5, y + 3.5, { align: 'center' });
             y += 5;
 
             // Filas: C1..Cn
             for (let i = 0; i < allCs.length; i++) {
                 pdf.rect(tblX, y, 18, 5, 'D'); pdf.rect(tblX + 18, y, 25, 5, 'D'); pdf.rect(tblX + 43, y, 25, 5, 'D');
                 pdf.text(`C${i + 1}`, tblX + 9, y + 3.5, { align: 'center' });
-                pdf.text(String(Math.round(allCs[i])), tblX + 30.5, y + 3.5, { align: 'center' });
-                pdf.text(String(Math.round(mecanizado[i + 1])), tblX + 55.5, y + 3.5, { align: 'center' });
+                pdf.text(fmt(allCs[i]), tblX + 30.5, y + 3.5, { align: 'center' });
+                pdf.text(fmt(mecanizado[i + 1]), tblX + 55.5, y + 3.5, { align: 'center' });
                 y += 5;
             }
 
             // B2
             pdf.rect(tblX, y, 18, 5, 'D'); pdf.rect(tblX + 18, y, 25, 5, 'D'); pdf.rect(tblX + 43, y, 25, 5, 'D');
             pdf.text('B2', tblX + 9, y + 3.5, { align: 'center' });
-            pdf.text(String(fabState.b2), tblX + 30.5, y + 3.5, { align: 'center' });
+            pdf.text(fmt(fabState.b2), tblX + 30.5, y + 3.5, { align: 'center' });
             pdf.text('—', tblX + 55.5, y + 3.5, { align: 'center' });
-            y += 7;
+            y += 6;
+
+            // Nota: reparto equidistante original (solo si no se ha editado ninguna cota)
+            if (esEquidistante) {
+                pdf.setFontSize(7.5); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(34, 139, 58);
+                pdf.text('Medidas equidistantes (reparto automático)', tblX, y + 3);
+                y += 4;
+            }
+            y += 1;
         } else {
             pdf.setFontSize(8); pdf.setFont('helvetica', 'italic'); pdf.setTextColor(120);
             pdf.text('Posición de bisagras fija para este perfil', mL + 3, y + 3);
             y += 7;
         }
 
-        // ── COL IZQ: Tirador ──
+        // ── COL IZQ: Tirador (arranca en el inicio del bloque 3) ──
+        y = bloque3Top;
         if (tieneTirador) {
-            pdf.setFillColor(44, 62, 80);
-            pdf.rect(mL, y, colIzqW, 5, 'F');
-            pdf.setTextColor(255); pdf.setFontSize(8); pdf.setFont('helvetica', 'bold');
-            pdf.text('TIRADOR MECANIZADO', mL + 3, y + 3.5);
+            seccion('Tirador mecanizado', mL, colIzqW, y);
             y += 7;
 
             // Imagen tirador
@@ -429,7 +384,7 @@ async function generarPDFVitrinas(pedido, cliente) {
             }
 
             const tDatosX = mL + tBoxW + 5;
-            pdf.setFontSize(9); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(44, 62, 80);
+            pdf.setFontSize(9); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(...AZUL);
             pdf.text(`Tirador ${tirador?.medidas || state.tiradorTipo}`, tDatosX, y + 5);
 
             pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5); pdf.setTextColor(60);
@@ -438,72 +393,58 @@ async function generarPDFVitrinas(pedido, cliente) {
                 : fabState.tiradorPos;
             pdf.text(`Posición: ${posLabel}`, tDatosX, y + 10.5);
 
-            pdf.setFont('helvetica', 'bold'); pdf.setTextColor(194, 34, 34);
+            pdf.setFont('helvetica', 'bold'); pdf.setTextColor(30, 30, 30);
             pdf.text(`Medida Z: ${fabState.tiradorZ} mm`, tDatosX, y + 16);
 
             y += tBoxH + 4;
         } else {
             // ── Sin tirador: aviso en columna izquierda, estilo normal ──
-            pdf.setFillColor(44, 62, 80);
-            pdf.rect(mL, y, colIzqW, 5, 'F');
-            pdf.setTextColor(255); pdf.setFontSize(8); pdf.setFont('helvetica', 'bold');
-            pdf.text('TIRADOR MECANIZADO', mL + 3, y + 3.5);
+            seccion('Tirador mecanizado', mL, colIzqW, y);
             y += 7;
 
-            pdf.setFontSize(9); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(44, 62, 80);
+            pdf.setFontSize(9); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(...AZUL);
             pdf.text('Sin tirador mecanizado', mL + 3, y + 4);
             y += 8;
         }
 
-        // ── COLUMNA DERECHA: SVGs ──
-        // Capturar ambos SVGs del DOM
+        // ── COLUMNA DERECHA: cada vista ocupa su bloque completo ──
         const svgTrasImg  = await svgToImage('fabSvgTrasera', 400, 560);
         const svgFrontImg = await svgToImage('fabSvgFrontal', 400, 560);
 
-        const svgW = colDerW;
-        const svgTraseraH = 95;
-        const svgFrontalH = 80;
+        const CAP = 4;              // hueco para el caption bajo cada dibujo
+        const GAP = 3;              // margen interno del bloque
+        const ratio = 560 / 400;    // alto/ancho del PNG generado
 
-        if (svgTrasImg) {
-            pdf.addImage(svgTrasImg, 'PNG', colDerX, yStartCols, svgW, svgTraseraH);
-        } else {
-            pdf.setDrawColor(200); pdf.setFillColor(252, 252, 252);
-            pdf.rect(colDerX, yStartCols, svgW, svgTraseraH, 'FD');
-            pdf.setFontSize(8); pdf.setTextColor(170);
-            pdf.text('Vista Trasera', colDerX + svgW / 2, yStartCols + svgTraseraH / 2, { align: 'center' });
-        }
-        pdf.setFontSize(6.5); pdf.setTextColor(150);
-        pdf.text('Vista trasera — bisagras', colDerX + svgW / 2, yStartCols + svgTraseraH + 3, { align: 'center' });
+        // Cada imagen ocupa la altura de su bloque (menos caption), anclada arriba
+        const altoTrasDisp  = bloqueAlto - CAP - GAP;
+        const altoFrontDisp = bloqueAlto - CAP - GAP;
 
-        const svgFrontY = yStartCols + svgTraseraH + 7;
-        if (svgFrontImg) {
-            pdf.addImage(svgFrontImg, 'PNG', colDerX, svgFrontY, svgW, svgFrontalH);
-        } else {
-            pdf.setDrawColor(200); pdf.setFillColor(252, 252, 252);
-            pdf.rect(colDerX, svgFrontY, svgW, svgFrontalH, 'FD');
-            pdf.setFontSize(8); pdf.setTextColor(170);
-            pdf.text('Vista Frontal', colDerX + svgW / 2, svgFrontY + svgFrontalH / 2, { align: 'center' });
-        }
-        pdf.setFontSize(6.5); pdf.setTextColor(150);
-        pdf.text(tieneTirador ? 'Vista frontal — tirador' : 'Vista frontal', colDerX + svgW / 2, svgFrontY + svgFrontalH + 3, { align: 'center' });
+        function dibujarVista(img, yTop, altoDisp, caption) {
+            let h = altoDisp;
+            let w = h / ratio;
+            if (w > colDerW) { w = colDerW; h = w * ratio; }   // limitar por ancho
+            const x = colDerX + (colDerW - w) / 2;             // centrar horizontal
 
-        // Badge "SIN TIRADOR" sobre el dibujo frontal cuando no hay tirador
-        if (!tieneTirador) {
-            const badgeW = 30, badgeH = 6;
-            const badgeX = colDerX + (svgW - badgeW) / 2;
-            const badgeY = svgFrontY + (svgFrontalH - badgeH) / 2;
-            pdf.setFillColor(194, 34, 34);
-            pdf.roundedRect(badgeX, badgeY, badgeW, badgeH, 1, 1, 'F');
-            pdf.setFontSize(7); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(255);
-            pdf.text('SIN TIRADOR', badgeX + badgeW / 2, badgeY + 4.2, { align: 'center' });
+            if (img) {
+                pdf.addImage(img, 'PNG', x, yTop, w, h);
+            } else {
+                pdf.setDrawColor(200); pdf.setFillColor(252, 252, 252);
+                pdf.rect(x, yTop, w, h, 'FD');
+                pdf.setFontSize(8); pdf.setTextColor(170);
+                pdf.text(caption, x + w / 2, yTop + h / 2, { align: 'center' });
+            }
+            pdf.setFontSize(6.5); pdf.setTextColor(150); pdf.setFont('helvetica', 'normal');
+            pdf.text(caption, colDerX + colDerW / 2, yTop + h + CAP - 1, { align: 'center' });
         }
 
-        // ── PIE DE PÁGINA ──
-        pdf.setDrawColor(220); pdf.setLineWidth(0.3);
-        pdf.line(mL, H - 12, W - mR, H - 12);
-        pdf.setFontSize(6.5); pdf.setTextColor(170);
-        pdf.text('ADINOR — Configurador de Vitrinas', mL, H - 8);
-        pdf.text(`Generado: ${fecha}`, W - mR, H - 8, { align: 'right' });
+        dibujarVista(svgTrasImg, bloque2Top, altoTrasDisp, 'Vista trasera — bisagras');
+        dibujarVista(svgFrontImg, bloque3Top, altoFrontDisp, tieneTirador ? 'Vista frontal — tirador' : 'Vista frontal');
+
+        // ── VERSIÓN (traza mínima, sin línea de pie para ganar espacio) ──
+        if (window.VERSION_APP) {
+            pdf.setFontSize(5.5); pdf.setTextColor(200);
+            pdf.text(`Adinor · Vitrinas · ${window.VERSION_APP}`, W - mR, H - 4, { align: 'right' });
+        }
 
         // ── NOMBRE Y DESCARGA ──
         const nombreArchivo = pedido
@@ -528,15 +469,9 @@ function inicializarPDFVitrinas() {
     const btn = document.getElementById('fabBtnPDF');
     if (!btn) return;
 
-    // Activar el botón (quitar estado deshabilitado)
-    btn.style.opacity = '1';
-    btn.style.cursor = 'pointer';
-    btn.title = 'Generar PDF de fabricación';
-
-    // Quitar listener previo y poner el nuevo
+    // Quitar listener previo y poner el nuevo. El estado disabled lo gestiona
+    // fabricacion.js (actualizarEstadoPDF) según la captura de bisagras.
     const clone = btn.cloneNode(true);
-    clone.style.opacity = '1';
-    clone.style.cursor = 'pointer';
     btn.parentNode.replaceChild(clone, btn);
     clone.addEventListener('click', mostrarModalPDF);
 }

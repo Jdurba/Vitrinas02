@@ -13,14 +13,19 @@ const state = {
     anchoReal: 0,
     anchoValido: null,
     cantidad: 1,
+    numPedido: '',
+    cliente: '',
     bisagrasNominal: 0,
     bisagrasExtras: 0,
+    precioMecExtra: null,   // €/mecanizado bisagra extra (VV.MEC.B), cargado del CSV en init
     bisagrasTotal: 0,
     bisagrasMaxTecnico: 0,
     bisagrasB1: 100,
     bisagrasB2: 100,
     bisagrasCalculadas: 0,
     bisagras: '',
+    sinMecanizado: false,
+    adjuntarBisagras: null,   // null = sin responder, true = Sí, false = No
     tirador: false,
     tiradorTipo: null,
     vidrioMontado: false,
@@ -47,12 +52,18 @@ const elementos = {
     anchoReal: document.getElementById('anchoReal'),
     anchoMensaje: document.getElementById('anchoMensaje'),
     cantidad: document.getElementById('cantidad'),
+    numPedido: document.getElementById('numPedido'),
+    cliente: document.getElementById('cliente'),
+    sinMecanizado: document.getElementById('sinMecanizado'),
+    adjuntarBisagrasGroup: document.getElementById('adjuntarBisagrasGroup'),
+    adjuntarSi: document.getElementById('adjuntarSi'),
+    adjuntarNo: document.getElementById('adjuntarNo'),
     bisagrasWidget: document.getElementById('bisagrasWidget'),
     bisagrasNominalInfo: document.getElementById('bisagrasNominalInfo'),
     bisagrasNum: document.getElementById('bisagrasNum'),
     bisagrasMenos: document.getElementById('bisagrasMenos'),
     bisagrasmas: document.getElementById('bisagrasmas'),
-    bisagrasExtraPrecio: document.getElementById('bisagrasExtraPrecio'),
+    bisagrasMecanizadoPrecio: document.getElementById('bisagrasMecanizadoPrecio'),
     bisagrasAdvertencia: document.getElementById('bisagrasAdvertencia'),
     tirador: document.getElementById('tirador'),
     tiradoresSelector: document.getElementById('tiradoresSelector'),
@@ -66,10 +77,9 @@ const elementos = {
     resumenVidrioMedidas: document.getElementById('resumenVidrioMedidas'),
     resumenCantidad: document.getElementById('resumenCantidad'),
     resumenBisagras: document.getElementById('resumenBisagras'),
-    resumenBisagrasExtra: document.getElementById('resumenBisagrasExtra'),
     resumenTirador: document.getElementById('resumenTirador'),
+    resumenAdjuntar: document.getElementById('resumenAdjuntar'),
     resumenVidrio: document.getElementById('resumenVidrio'),
-    btnCalcular: document.getElementById('btnCalcular'),
     btnFabricar: document.getElementById('btnFabricar'),
     btnReset: document.getElementById('btnReset')
 };
@@ -77,7 +87,7 @@ const elementos = {
 // ==========================================
 // INICIALIZACIÓN
 // ==========================================
-function init() {
+async function init() {
     console.log('Inicializando aplicación...');
 
     // Nombres de acabado desde CONFIG (única fuente de verdad; el texto del HTML es solo fallback)
@@ -103,8 +113,13 @@ function init() {
     elementos.anchoReal?.addEventListener('blur', () => calcularMedida('ancho', 'real'));
 
     elementos.cantidad?.addEventListener('change', actualizarCantidad);
+    elementos.numPedido?.addEventListener('input', e => { state.numPedido = e.target.value.trim(); });
+    elementos.cliente?.addEventListener('input', e => { state.cliente = e.target.value.trim(); });
     elementos.bisagrasMenos?.addEventListener('click', () => cambiarBisagrasExtra(-1));
     elementos.bisagrasmas?.addEventListener('click', () => cambiarBisagrasExtra(+1));
+    elementos.sinMecanizado?.addEventListener('change', actualizarSinMecanizado);
+    elementos.adjuntarSi?.addEventListener('click', () => setAdjuntarBisagras(true));
+    elementos.adjuntarNo?.addEventListener('click', () => setAdjuntarBisagras(false));
     elementos.tirador?.addEventListener('change', actualizarTirador);
 
     elementos.tiradoresCards.forEach(card => {
@@ -114,25 +129,24 @@ function init() {
     elementos.vidrioMontado?.addEventListener('change', actualizarVidrio);
     elementos.colorVidrio?.addEventListener('change', actualizarColorVidrio);
 
-    elementos.btnCalcular?.addEventListener('click', calcularPresupuesto);
     elementos.btnFabricar?.addEventListener('click', pasarAFabricacion);
     elementos.btnReset?.addEventListener('click', resetearDatos);
 
-    actualizarPreciosInterfaz();
+    // Precio del mecanizado de bisagra extra (VV.MEC.B) desde TarifaExtras.csv.
+    // Una sola carga: cachea en state. El reset re-lee de aquí, no recarga CSV.
+    try {
+        await cargarExtras();
+        const mec = buscarMecanizado('VV.MEC.B');
+        state.precioMecExtra = (mec.encontrado && !mec.consultar) ? mec.tarifa : null;
+    } catch (e) {
+        console.warn('No se pudo cargar el precio de mecanizado extra:', e);
+        state.precioMecExtra = null;
+    }
+
     actualizarResumen();
     validarFormulario();
 
     console.log('Aplicación inicializada correctamente');
-}
-
-// ==========================================
-// ACTUALIZAR PRECIOS EN LA INTERFAZ
-// ==========================================
-function actualizarPreciosInterfaz() {
-    const precio126 = document.getElementById('precioTirador126x35');
-    const precio37 = document.getElementById('precioTirador37x16');
-    if (precio126) precio126.textContent = `${CONFIG.precios.Tirador_126x35.toFixed(2)} €`;
-    if (precio37)  precio37.textContent  = `${CONFIG.precios.Tirador_37x16.toFixed(2)} €`;
 }
 
 // ==========================================
@@ -173,8 +187,33 @@ function seleccionarModelo(card) {
     }
 
     calcularVidrio();
+    actualizarEstadoSinMecanizado();
+    aplicarEstadoAdjuntarBisagras();
     actualizarResumen();
     validarFormulario();
+}
+
+// El check "Sin mecanizado" no aplica a modelos con bisagras obligatorias
+// (KABI/HAVA/HAVASP): siempre van mecanizadas. Se deshabilita y se fuerza a false.
+function actualizarEstadoSinMecanizado() {
+    const modeloConfig = CONFIG.modelos[state.modelo];
+    const bisagrasObligatorias = !!modeloConfig?.bisagras_fijas;
+
+    if (!elementos.sinMecanizado) return;
+
+    if (bisagrasObligatorias) {
+        if (state.sinMecanizado) {
+            // Estaba marcado: revertir a estado mecanizado
+            state.sinMecanizado = false;
+            elementos.bisagrasWidget?.classList.remove('deshabilitado');
+        }
+        elementos.sinMecanizado.checked   = false;
+        elementos.sinMecanizado.disabled  = true;
+        elementos.sinMecanizado.closest('.checkbox-item')?.classList.add('disabled');
+    } else {
+        elementos.sinMecanizado.disabled = false;
+        elementos.sinMecanizado.closest('.checkbox-item')?.classList.remove('disabled');
+    }
 }
 
 // ==========================================
@@ -205,10 +244,11 @@ function actualizarVistaPrevia() {
 function filtrarAcabadosPorModelo() {
     const modeloConfig = CONFIG.modelos[state.modelo];
     const acabadosPermitidos = modeloConfig?.acabados || Object.keys(CONFIG.acabados);
+    const ACABADOS_UNIVERSALES = ['ESP'];   // disponibles en todos los perfiles
 
     elementos.acabados.forEach(item => {
         const acabado = item.dataset.acabado;
-        const disponible = acabadosPermitidos.includes(acabado);
+        const disponible = acabadosPermitidos.includes(acabado) || ACABADOS_UNIVERSALES.includes(acabado);
 
         item.style.opacity = disponible ? '1' : '0.3';
         item.style.pointerEvents = disponible ? 'auto' : 'none';
@@ -249,9 +289,40 @@ function actualizarDisponibilidadTirador() {
                 aviso('Este perfil no admite tirador mecanizado.\nSe ha eliminado el tirador de la configuración.');
             }
         }
-    } else {
-        tiradorLabel.classList.remove('disabled');
-        elementos.tirador.disabled = false;
+        return;
+    }
+
+    tiradorLabel.classList.remove('disabled');
+    elementos.tirador.disabled = false;
+
+    // Filtrado por perfil (tiradoresValidos) ∩ acabado (tirador.acabados).
+    // El tirador hereda el acabado del perfil → solo aparece si lo soporta.
+    const validosModelo = modeloConfig?.tiradoresValidos || [];
+    const esValido = tipo => {
+        if (!validosModelo.includes(tipo)) return false;
+        const acabadosTir = CONFIG.tiradores[tipo]?.acabados;
+        if (!state.acabado || !acabadosTir) return true;   // sin acabado aún: no filtrar por acabado
+        return acabadosTir.includes(state.acabado);
+    };
+
+    elementos.tiradoresCards.forEach(card => {
+        const tipo = card.dataset.tirador;
+        const disponible = esValido(tipo);
+        card.style.opacity = disponible ? '1' : '0.3';
+        card.style.pointerEvents = disponible ? 'auto' : 'none';
+        card.title = disponible ? '' : 'No disponible para este perfil/acabado';
+    });
+
+    // Si el tirador seleccionado dejó de ser válido: avisar y anular selección
+    // (sin tocar el check "sin tirador"; Siguiente queda inhabilitado por tiradorValido).
+    if (state.tiradorTipo && !esValido(state.tiradorTipo)) {
+        state.tiradorTipo = null;
+        elementos.tiradoresCards.forEach(c => c.classList.remove('selected'));
+        if (typeof aviso === 'function') {
+            aviso('El tirador seleccionado no está disponible para este perfil/acabado.\nSelecciona otro entre los disponibles.');
+        }
+        actualizarResumen();
+        validarFormulario();
     }
 }
 
@@ -262,6 +333,7 @@ function seleccionarAcabado(item) {
     elementos.acabados.forEach(i => i.classList.remove('selected'));
     item.classList.add('selected');
     state.acabado = item.dataset.acabado;
+    actualizarDisponibilidadTirador();
     actualizarResumen();
     validarFormulario();
 }
@@ -362,17 +434,18 @@ function validarMedida(tipo, valor) {
     }
 
     const max = tipo === 'altura' ? modelo.maxAltura : modelo.maxAncho;
+    const min = tipo === 'altura' ? modelo.minAltura : modelo.minAncho;
 
     if (valor < 0) {
         return { valido: false, mensaje: '⛔ No se permiten valores negativos', clase: 'error', bloqueado: true };
     }
 
     if (!valor || valor === 0) {
-        return { valido: false, mensaje: `Rango válido: ${modelo.Minimo}-${max} mm`, clase: 'info', bloqueado: false };
+        return { valido: false, mensaje: `Rango válido: ${min}-${max} mm`, clase: 'info', bloqueado: false };
     }
 
-    if (valor < modelo.Minimo) {
-        return { valido: false, mensaje: `⛔ Mínimo absoluto: ${modelo.Minimo} mm`, clase: 'error', bloqueado: true };
+    if (valor < min) {
+        return { valido: false, mensaje: `⛔ Mínimo absoluto: ${min} mm`, clase: 'error', bloqueado: true };
     }
 
     // Bloqueo duro: vidrio resultante supera el máximo fabricable
@@ -393,7 +466,7 @@ function validarMedida(tipo, valor) {
         return { valido: true, mensaje: `⚠️ Supera máximo recomendado (${max} mm)`, clase: 'advertencia', bloqueado: false };
     }
 
-    return { valido: true, mensaje: `✓ Válido (${modelo.Minimo}-${max} mm)`, clase: 'valido', bloqueado: false };
+    return { valido: true, mensaje: `✓ Válido (${min}-${max} mm)`, clase: 'valido', bloqueado: false };
 }
 
 // ==========================================
@@ -436,7 +509,7 @@ function calcularBisagrasAutomaticas() {
         state.bisagrasCalculadas = modeloConfig.bisagras_fijas;
         state.bisagrasTotal      = modeloConfig.bisagras_fijas;
         state.bisagras           = String(modeloConfig.bisagras_fijas);
-        renderWidgetBisagras(true);
+        if (!state.sinMecanizado) renderWidgetBisagras(true);
         return;
     }
 
@@ -446,12 +519,26 @@ function calcularBisagrasAutomaticas() {
         nominal = rango.num;
     }
 
-    const B1 = CONFIG.bisagras_B1_defecto;
-    const B2 = CONFIG.bisagras_B2_defecto;
+    // Marco limpio: fija el nominal pero deja el widget deshabilitado
+    if (state.sinMecanizado) {
+        state.bisagrasNominal    = nominal;
+        state.bisagrasExtras     = 0;
+        state.bisagrasMaxTecnico = nominal;
+        state.bisagrasTotal      = nominal;
+        state.bisagrasCalculadas = nominal;
+        state.bisagras           = String(nominal);
+        return;
+    }
+
+    // Máximo nº de bisagras que caben respetando los mínimos físicos:
+    //   floor( 1 + (Altura − 2×B_minimo) / C_minimo )
+    // Usa B_minimo (no el defecto) porque es el mejor caso físico: cuántas
+    // caben con las bisagras pegadas a su separación mínima. Tope global aparte.
+    const Bmin = CONFIG.bisagras_B_minimo;
     const Cmin = CONFIG.bisagras_C_minimo;
     const maxTecnico = Math.min(
         CONFIG.bisagras_max_global,
-        Math.floor((altura - B1 - B2) / Cmin) + 2
+        Math.floor(1 + (altura - 2 * Bmin) / Cmin)
     );
 
     state.bisagrasNominal    = nominal;
@@ -509,14 +596,89 @@ function resetearWidgetBisagras() {
     }
     if (elementos.bisagrasMenos) elementos.bisagrasMenos.disabled = true;
     if (elementos.bisagrasmas)   elementos.bisagrasmas.disabled   = true;
-    if (elementos.bisagrasExtraPrecio) elementos.bisagrasExtraPrecio.textContent = '';
+    if (elementos.bisagrasMecanizadoPrecio) elementos.bisagrasMecanizadoPrecio.textContent = '';
     if (elementos.bisagrasAdvertencia) elementos.bisagrasAdvertencia.textContent = '';
 
     const labelEl = document.getElementById('bisagrasLabel');
     if (labelEl) labelEl.classList.add('disabled');
 }
 
+// Marco limpio: la vitrina lleva bisagras (para tarifa/informe) pero no se
+// mecanizan → sin extras ni cotas. bisagrasTotal se mantiene en su nominal.
+function actualizarSinMecanizado(e) {
+    state.sinMecanizado = e.target.checked;
+
+    if (state.sinMecanizado) {
+        state.bisagrasExtras = 0;
+        state.bisagrasTotal  = state.bisagrasCalculadas || state.bisagrasNominal;
+        state.bisagras       = String(state.bisagrasTotal);
+
+        elementos.bisagrasWidget?.classList.remove('activo');
+        elementos.bisagrasWidget?.classList.add('deshabilitado');
+        if (elementos.bisagrasMenos) elementos.bisagrasMenos.disabled = true;
+        if (elementos.bisagrasmas)   elementos.bisagrasmas.disabled   = true;
+        if (elementos.bisagrasNominalInfo)
+            elementos.bisagrasNominalInfo.textContent = 'Marco limpio — sin mecanizado';
+        actualizarPrecioBisagrasExtra();
+        if (elementos.bisagrasAdvertencia) elementos.bisagrasAdvertencia.textContent = '';
+    } else {
+        elementos.bisagrasWidget?.classList.remove('deshabilitado');
+        if (state.alturaReal > 0 && state.alturaValido) {
+            calcularBisagrasAutomaticas();
+        } else {
+            resetearWidgetBisagras();
+        }
+    }
+
+    aplicarEstadoAdjuntarBisagras();
+    actualizarResumen();
+    validarFormulario();
+}
+
+// ==========================================
+// ADJUNTAR BISAGRAS (producto) — tri-estado null/true/false
+// ==========================================
+function setAdjuntarBisagras(valor) {
+    state.adjuntarBisagras = valor;
+    renderAdjuntarBisagras();
+    actualizarResumen();
+    validarFormulario();
+}
+
+// Pinta el estado visual de los botones Sí/No
+function renderAdjuntarBisagras() {
+    if (!elementos.adjuntarSi || !elementos.adjuntarNo) return;
+    elementos.adjuntarSi.classList.toggle('activo-si', state.adjuntarBisagras === true);
+    elementos.adjuntarNo.classList.toggle('activo-no', state.adjuntarBisagras === false);
+}
+
+// Aplica condicionantes: bisagras obligatorias (KABI/HAVA/HAVASP) → Sí forzado;
+// sin mecanizado → No forzado; en ambos casos deshabilita los botones.
+function aplicarEstadoAdjuntarBisagras() {
+    const modeloConfig = CONFIG.modelos[state.modelo];
+    const bisagrasObligatorias = !!modeloConfig?.bisagras_fijas;
+
+    let bloqueado = false;
+    if (bisagrasObligatorias) {
+        state.adjuntarBisagras = true;   // bisagras obligatorias → se adjuntan siempre
+        bloqueado = true;
+    } else if (state.sinMecanizado) {
+        state.adjuntarBisagras = false;  // marco limpio → no se adjuntan
+        bloqueado = true;
+    } else if (state._adjuntarForzado) {
+        // Venía de un estado forzado (obligatorio/sin-mec) → exigir respuesta explícita
+        state.adjuntarBisagras = null;
+    }
+    state._adjuntarForzado = bloqueado;
+
+    if (elementos.adjuntarBisagrasGroup)
+        elementos.adjuntarBisagrasGroup.classList.toggle('deshabilitado', bloqueado);
+
+    renderAdjuntarBisagras();
+}
+
 function cambiarBisagrasExtra(delta) {
+    if (state.sinMecanizado) return;
     const modeloConfig = CONFIG.modelos[state.modelo];
     if (modeloConfig?.bisagras_fijas) return;
 
@@ -536,14 +698,22 @@ function cambiarBisagrasExtra(delta) {
     validarFormulario();
 }
 
+// Informativo: coste de mecanizado de las bisagras EXTRA = extras × Mecanizado.
+// Solo se muestra si hay extras y no es marco limpio.
 function actualizarPrecioBisagrasExtra() {
-    if (!elementos.bisagrasExtraPrecio) return;
-    if (state.bisagrasExtras > 0) {
-        const precio = state.bisagrasExtras * CONFIG.precios.bisagra_extra;
-        elementos.bisagrasExtraPrecio.textContent =
-            `+${state.bisagrasExtras} bisagra${state.bisagrasExtras > 1 ? 's' : ''} extra: +${precio.toFixed(2)} €`;
+    if (!elementos.bisagrasMecanizadoPrecio) return;
+    if (state.bisagrasExtras > 0 && !state.sinMecanizado) {
+        const n = state.bisagrasExtras;
+        if (state.precioMecExtra != null) {
+            const total = n * state.precioMecExtra;
+            elementos.bisagrasMecanizadoPrecio.textContent =
+                `${n} mecanizado extra: ${total.toFixed(2)} €`;
+        } else {
+            elementos.bisagrasMecanizadoPrecio.textContent =
+                `${n} mecanizado extra: consultar`;
+        }
     } else {
-        elementos.bisagrasExtraPrecio.textContent = '';
+        elementos.bisagrasMecanizadoPrecio.textContent = '';
     }
     if (elementos.bisagrasAdvertencia) elementos.bisagrasAdvertencia.textContent = '';
 }
@@ -645,12 +815,17 @@ function actualizarResumen() {
 
     actualizarResumenBisagras();
 
+    if (elementos.resumenAdjuntar) {
+        elementos.resumenAdjuntar.textContent =
+            state.adjuntarBisagras === true  ? 'Sí' :
+            state.adjuntarBisagras === false ? 'No'  : '-';
+    }
+
     if (elementos.resumenTirador) {
         let textoTirador = 'No';
         if (state.tirador && state.tiradorTipo) {
             const tirador = CONFIG.tiradores[state.tiradorTipo];
-            const precio  = CONFIG.precios[`Tirador_${state.tiradorTipo}`];
-            textoTirador = `Sí (${tirador.medidas} - ${precio.toFixed(2)} €)`;
+            textoTirador = `Sí (${tirador.medidas})`;
         } else if (state.tirador) {
             textoTirador = 'Sí (sin seleccionar)';
         }
@@ -669,18 +844,12 @@ function actualizarResumen() {
 function actualizarResumenBisagras() {
     if (!elementos.resumenBisagras) return;
 
-    elementos.resumenBisagras.textContent = state.bisagrasTotal > 0
-        ? state.bisagrasTotal.toString()
-        : '-';
-
-    if (elementos.resumenBisagrasExtra) {
-        if (state.bisagrasExtras > 0) {
-            const precio = state.bisagrasExtras * CONFIG.precios.bisagra_extra;
-            elementos.resumenBisagrasExtra.textContent =
-                `+${state.bisagrasExtras} extra${state.bisagrasExtras > 1 ? 's' : ''} (+${precio.toFixed(2)} €)`;
-        } else {
-            elementos.resumenBisagrasExtra.textContent = '';
-        }
+    if (state.sinMecanizado) {
+        elementos.resumenBisagras.textContent = 'Sin mecanizar';
+    } else {
+        elementos.resumenBisagras.textContent = state.bisagrasTotal > 0
+            ? state.bisagrasTotal.toString()
+            : '-';
     }
 }
 
@@ -692,11 +861,12 @@ function formatearColorVidrio(color) {
 // VALIDACIÓN DEL FORMULARIO
 // ==========================================
 function validarFormulario() {
-    const bisagrasValidas = state.bisagrasTotal >= 2;
+    const bisagrasValidas = state.sinMecanizado || state.bisagrasTotal >= 2;
     const alturaValida    = state.alturaValido !== false && state.alturaReal > 0;
     const anchoValida     = state.anchoValido  !== false && state.anchoReal  > 0;
     const tiradorValido   = !state.tirador || (state.tirador && state.tiradorTipo);
     const vidrioValido    = !state.vidrioMontado || (state.vidrioMontado && state.colorVidrio !== '');
+    const adjuntarValido  = state.adjuntarBisagras !== null;   // exige respuesta explícita Sí/No
 
     const completo =
         state.modelo  !== null &&
@@ -705,18 +875,11 @@ function validarFormulario() {
         anchoValida &&
         state.cantidad >= 1 &&
         bisagrasValidas &&
+        adjuntarValido &&
         tiradorValido &&
         vidrioValido;
 
-    if (elementos.btnCalcular) elementos.btnCalcular.disabled = !completo;
     if (elementos.btnFabricar) elementos.btnFabricar.disabled = !completo;
-}
-
-// ==========================================
-// BOTÓN CALCULAR → vista de presupuesto (presupuesto.js)
-// ==========================================
-function calcularPresupuesto() {
-    mostrarPresupuesto();
 }
 
 // ==========================================
@@ -739,12 +902,16 @@ function ejecutarReset() {
     state.anchoReal = 0;
     state.anchoValido = null;
     state.cantidad = 1;
+    state.numPedido = '';
+    state.cliente = '';
     state.bisagrasNominal    = 0;
     state.bisagrasExtras     = 0;
     state.bisagrasTotal      = 0;
     state.bisagrasMaxTecnico = 0;
     state.bisagrasCalculadas = 0;
     state.bisagras           = '';
+    state.sinMecanizado      = false;
+    state.adjuntarBisagras   = null;
     state.tirador = false;
     state.vidrioMontado = false;
     state.colorVidrio = '';
@@ -764,7 +931,17 @@ function ejecutarReset() {
     if (elementos.anchoReal)      elementos.anchoReal.value = '';
     if (elementos.anchoMensaje)   elementos.anchoMensaje.textContent = '';
     if (elementos.cantidad)       elementos.cantidad.value = '1';
+    if (elementos.numPedido)      elementos.numPedido.value = '';
+    if (elementos.cliente)        elementos.cliente.value = '';
 
+    if (elementos.sinMecanizado) {
+        elementos.sinMecanizado.checked = false;
+        elementos.sinMecanizado.disabled = false;
+        elementos.sinMecanizado.closest('.checkbox-item')?.classList.remove('disabled');
+    }
+    elementos.adjuntarBisagrasGroup?.classList.remove('deshabilitado');
+    renderAdjuntarBisagras();
+    elementos.bisagrasWidget?.classList.remove('deshabilitado');
     resetearWidgetBisagras();
 
     if (elementos.tirador) elementos.tirador.checked = false;
@@ -784,6 +961,10 @@ function ejecutarReset() {
         elementos.vidrioMontado.dispatchEvent(new Event('change'));
     }
     actualizarDisponibilidadVidrio(false);
+
+    // Invalidar la firma de fabricación: la próxima entrada recalculará
+    // la hoja desde cero (fabFirma vive en fabricacion.js).
+    if (typeof fabFirma !== 'undefined') fabFirma = null;
 
     actualizarResumen();
     validarFormulario();

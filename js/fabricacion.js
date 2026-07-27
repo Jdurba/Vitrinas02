@@ -7,8 +7,31 @@ const fabState = {
     tiradorZ:    null,   // mm
     b1:          100,
     b2:          100,
-    csEditables: []      // valores de C1, C2, ... Cn-1 (Cn es automático)
+    csEditables: [],     // valores de C1, C2, ... Cn-1 (Cn es automático)
+    // Bisagras adjuntadas (solo si state.adjuntarBisagras === true)
+    bisMontaje:  null,   // 'recta' | 'acodada' | 'superacodada'
+    bisBase:     null,   // '16' | '19'
+    bisColor:    null    // 'negro' | 'niquelado'
 };
+
+// Firma del form principal con la que se calculó la hoja de fabricación
+// actual. Se compara al reentrar: si el usuario cambió algún campo que
+// alimenta la fabricación, la hoja se invalida y se recalcula desde cero.
+// null = todavía no se ha entrado a fabricación (o se reseteó todo).
+let fabFirma = null;
+
+// Campos de `state` que, al cambiar, invalidan la hoja de fabricación.
+// (numPedido/cliente no afectan al reparto físico y quedan fuera a propósito.)
+const FAB_CAMPOS_FIRMA = [
+    'modelo', 'acabado', 'alturaReal', 'anchoReal',
+    'bisagrasTotal', 'adjuntarBisagras',
+    'tirador', 'tiradorTipo',
+    'vidrioMontado', 'colorVidrio', 'cantidad'
+];
+
+function calcularFirmaFab() {
+    return FAB_CAMPOS_FIRMA.map(k => `${k}:${state[k]}`).join('|');
+}
 
 // ==========================================
 // HELPERS DE CÁLCULO
@@ -18,27 +41,32 @@ function calcularCsDefault() {
     const gaps = state.bisagrasTotal - 1;
     if (gaps <= 1) return [];
     const total = state.alturaReal - fabState.b1 - fabState.b2;
-    const base  = Math.floor(total / gaps);
+
+    // Reparto equidistante real: todos los C lo más iguales posible.
+    // Los C editables (C1..Cn-1) llevan el valor base; el céntimo sobrante
+    // lo recoge Cn al cerrar la suma (mismo comportamiento que al editar).
+    const totalCent = Math.round(total * 100);
+    const baseCent  = Math.floor(totalCent / gaps);
+
+    // Solo devolvemos C1..Cn-1 (el último, Cn, lo calcula calcularCn).
     const result = [];
-    for (let i = 1; i < gaps; i++) result.push(base);
+    for (let i = 0; i < gaps - 1; i++) result.push(baseCent / 100);
     return result;
 }
 
-// Cn es el valor calculado: absorbe el redondeo y es siempre el último
+// Cn es el valor calculado: cierra la suma y es siempre el último.
+// Se redondea a 2 decimales para que el valor mostrado y el usado
+// en dibujo/exportación coincidan exactamente.
 function calcularCn() {
     const sumCsEdit = fabState.csEditables.reduce((a, b) => a + b, 0);
-    return state.alturaReal - fabState.b1 - fabState.b2 - sumCsEdit;
+    return r2(state.alturaReal - fabState.b1 - fabState.b2 - sumCsEdit);
 }
 
-function getBisagraPositions() {
-    const n = state.bisagrasTotal;
-    if (n <= 0) return [];
-    const cn    = calcularCn();
-    const allCs = n > 1 ? [...fabState.csEditables, cn] : [];  // Cn al final
-    const pos   = [fabState.b1];
-    for (const c of allCs) pos.push(pos[pos.length - 1] + c);
-    return pos;
-}
+// Formateo para VISUALIZACIÓN: 2 decimales fijos + coma (convención ES).
+function fmt(v) { return r2(v).toFixed(2).replace('.', ','); }
+
+// Parseo de entrada: acepta coma o punto → número JS.
+function parseNum(str) { return parseFloat(String(str).replace(',', '.')); }
 
 // Posiciones en px para el SVG con B1/B2 fijos (no escalados)
 // igual que fr y bisR — el dibujo no es proporcional pero siempre es legible
@@ -82,7 +110,10 @@ function calcularZDefault() {
 // ==========================================
 // ENTRAR / SALIR DE LA VISTA
 // ==========================================
-function pasarAFabricacion() {
+
+// Reinicia la hoja de fabricación a sus valores por defecto a partir
+// del state actual del form principal.
+function resetearFabState() {
     // Mano por defecto: derecha (bisagras derecha, tirador izquierda)
     fabState.mano = 'derecha';
     fabState.b1 = CONFIG.bisagras_B1_defecto;
@@ -98,19 +129,70 @@ function pasarAFabricacion() {
         fabState.tiradorZ   = null;
     }
 
-    // Ocultar formulario principal, mostrar vista fabricación
-    document.getElementById('mainHeader').style.display    = 'none';
-    document.getElementById('mainContainer').style.display = 'none';
-    document.getElementById('fabVista').style.display      = 'flex';
+    // Bisagras adjuntadas: sin preseleccionar (obligatorias para el PDF).
+    // Excepción D35-S: solo existe niquelado → preseleccionado.
+    fabState.bisMontaje = null;
+    fabState.bisBase    = null;
+    fabState.bisColor   = CONFIG.modelos[state.modelo].tipobisagra === 'D35-S' ? 'niquelado' : null;
+}
+
+function pasarAFabricacion() {
+    // Solo reiniciar la hoja de fabricación si el form principal cambió
+    // respecto a la última vez que se entró. Si el usuario vuelve atrás sin
+    // tocar nada relevante, se conservan mano, cotas, tirador y bisagras.
+    const firmaActual = calcularFirmaFab();
+    if (fabFirma !== firmaActual) {
+        resetearFabState();
+        fabFirma = firmaActual;
+    }
+
+    // Entrar a fabricación: renderizar y mostrar la vista
+    mostrarVista('fab');
 
     renderFabIzq();
     renderFabSVGs();
+    actualizarEstadoPDF();
 }
 
 function volverConfigurador() {
-    document.getElementById('mainHeader').style.display    = '';
-    document.getElementById('mainContainer').style.display = '';
-    document.getElementById('fabVista').style.display      = 'none';
+    mostrarVista('config');
+}
+
+// ==========================================
+// NAVEGACIÓN ENTRE VISTAS (fuente única)
+// config | fab | presu
+// Oculta las tres y muestra una. No toca el estado (state/fabState);
+// entrar a fabricación reseteando fabState es responsabilidad de
+// pasarAFabricacion, no de esta función.
+// ==========================================
+function mostrarVista(vista) {
+    const mainHeader    = document.getElementById('mainHeader');
+    const mainContainer = document.getElementById('mainContainer');
+    const fabVista      = document.getElementById('fabVista');
+    const presuVista    = document.getElementById('presuVista');
+    const presuBarra    = document.getElementById('presu-barra');
+
+    // Ocultar todo
+    if (mainHeader)    mainHeader.style.display    = 'none';
+    if (mainContainer) mainContainer.style.display = 'none';
+    if (fabVista)      fabVista.style.display      = 'none';
+    if (presuVista)    presuVista.style.display    = 'none';
+    document.body.classList.remove('informe-activo');
+    if (presuBarra) presuBarra.classList.remove('visible');
+
+    // Mostrar la vista pedida
+    if (vista === 'config') {
+        if (mainHeader)    mainHeader.style.display    = '';
+        if (mainContainer) mainContainer.style.display = '';
+    } else if (vista === 'fab') {
+        if (fabVista) fabVista.style.display = 'flex';
+    } else if (vista === 'presu') {
+        if (presuVista) presuVista.style.display = 'block';
+        document.body.classList.add('informe-activo');
+        if (presuBarra) presuBarra.classList.add('visible');
+    }
+
+    window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
 // ==========================================
@@ -120,6 +202,8 @@ function renderFabIzq() {
     renderFicha();
     renderInputs();
     bindFabInputs();
+    renderBisagras();
+    bindBisagras();
 }
 
 function renderFicha() {
@@ -134,6 +218,7 @@ function renderFicha() {
         <div class="fab-ficha-fila"><span>Modelo</span><strong>${state.modelo} — ${m?.nombre || ''}</strong></div>
         <div class="fab-ficha-fila"><span>Acabado</span><strong>${a?.nombre || '-'}</strong></div>
         <div class="fab-ficha-fila"><span>Alto × Ancho</span><strong>${state.alturaReal} × ${state.anchoReal} mm</strong></div>
+        <div class="fab-ficha-fila"><span>Medida vidrio</span><strong>${state.vidrioAlto} × ${state.vidrioAncho} mm</strong></div>
         <div class="fab-ficha-fila"><span>Cantidad</span><strong>${state.cantidad} ud.</strong></div>
         <div class="fab-ficha-fila"><span>Bisagras</span><strong>${state.bisagrasTotal}</strong></div>
         ${t ? `<div class="fab-ficha-fila"><span>Tirador</span><strong>${t.medidas}</strong></div>` : ''}
@@ -145,7 +230,8 @@ function renderInputs() {
     const n    = state.bisagrasTotal;
     const cn   = calcularCn();
     const tieneTirador = state.tirador && state.tiradorTipo;
-    const bisagrasFijas = ['HAVA', 'HAVASP', 'KABI'].includes(state.modelo);
+    const bisagrasFijas = !!CONFIG.modelos[state.modelo]?.bisagras_fijas;
+    const sinMec = state.sinMecanizado;
 
     // Cn automático (último C — absorbe redondeo)
     const cnOk = cn >= CONFIG.bisagras_C_minimo;
@@ -153,7 +239,7 @@ function renderInputs() {
         <div class="fab-input-grupo">
             <label>C${n - 1} <span class="fab-hint">(auto)</span>
                 <div class="fab-mm-row">
-                    <input type="number" id="fabCn" value="${Math.round(cn)}"
+                    <input type="text" id="fabCn" value="${fmt(cn)}"
                         class="${cnOk ? '' : 'fab-err'}" readonly>
                     <span>mm</span>
                 </div>
@@ -166,12 +252,13 @@ function renderInputs() {
     // C1..Cn-1 editables
     let cEditables = '';
     for (let i = 0; i < fabState.csEditables.length; i++) {
+        const cOk = fabState.csEditables[i] >= CONFIG.bisagras_C_minimo;
         cEditables += `
             <div class="fab-input-grupo">
                 <label>C${i + 1}
                     <div class="fab-mm-row">
-                        <input type="number" id="fabC${i + 1}" class="fab-c-edit"
-                            data-cidx="${i}" value="${fabState.csEditables[i]}" min="${CONFIG.bisagras_C_minimo}" step="5">
+                        <input type="text" inputmode="decimal" id="fabC${i + 1}" class="fab-c-edit${cOk ? '' : ' fab-err'}"
+                            data-cidx="${i}" value="${fmt(fabState.csEditables[i])}">
                         <span>mm</span>
                     </div>
                 </label>
@@ -179,16 +266,25 @@ function renderInputs() {
     }
 
     // Sección cotas bisagras — título siempre visible, contenido según modelo
-    const secCotas = `
+    const secCotas = sinMec ? `
         <div class="fab-separador"></div>
         <div class="fab-grupo-label">Cotas de bisagras</div>
+        <p class="fab-hint" style="margin:6px 0 0;font-style:italic;">
+            Marco limpio — sin mecanizado de bisagras</p>`
+    : `
+        <div class="fab-separador"></div>
         ${bisagrasFijas
-            ? `<p class="fab-hint" style="margin:6px 0 0;font-style:italic;">
+            ? `<div class="fab-grupo-label">Cotas de bisagras</div>
+               <p class="fab-hint" style="margin:6px 0 0;font-style:italic;">
                 Este modelo tiene posición de bisagras fija</p>`
-            : `<div class="fab-input-grupo">
+            : `<div style="display:flex;align-items:center;gap:8px;">
+                <span class="fab-grupo-label" style="margin:0">Cotas de bisagras</span>
+                <button type="button" class="btn-help" onclick="toggleHelp(this)">?</button>
+               </div>
+               <div class="fab-input-grupo">
                 <label>B1 <span class="fab-hint">sup. (mín. 70)</span>
                     <div class="fab-mm-row">
-                        <input type="number" id="fabB1" value="${fabState.b1}" min="${CONFIG.bisagras_B_minimo}" step="5">
+                        <input type="text" inputmode="decimal" id="fabB1" value="${fmt(fabState.b1)}">
                         <span>mm</span>
                     </div>
                 </label>
@@ -200,7 +296,7 @@ function renderInputs() {
             <div class="fab-input-grupo">
                 <label>B2 <span class="fab-hint">inf. (mín. 70)</span>
                     <div class="fab-mm-row">
-                        <input type="number" id="fabB2" value="${fabState.b2}" min="${CONFIG.bisagras_B_minimo}" step="5">
+                        <input type="text" inputmode="decimal" id="fabB2" value="${fmt(fabState.b2)}">
                         <span>mm</span>
                     </div>
                 </label>
@@ -238,6 +334,12 @@ function renderInputs() {
                     </div>
                 </label>
             </div>`;
+    } else {
+        secTirador = `
+            <div class="fab-separador"></div>
+            <div class="fab-grupo-label">Cotas tirador</div>
+            <p style="margin:6px 0 0;font-size:0.95rem;font-weight:600;color:#2c3e50;">
+                Sin tirador mecanizado</p>`;
     }
 
     document.getElementById('fabInputs').innerHTML = `
@@ -252,6 +354,11 @@ function renderInputs() {
         ${secCotas}
         ${secTirador}
     `;
+
+    // Sincronizar borde rojo de todos los C y el mensaje único al entrar/re-render
+    // (cubre el caso de reparto por defecto con algún C < mínimo). El guard interno
+    // de actualizarCn ignora los modos sin cotas (fija / marco limpio).
+    if (!sinMec && !bisagrasFijas && state.bisagrasTotal > 1) actualizarCn();
 }
 
 // Devuelve el largo real del tirador activo en mm (primer número de la string de medidas)
@@ -262,6 +369,9 @@ function getTiradorLargoMm() {
 }
 
 function clamp(val, min, max) { return Math.max(min, Math.min(max, val)); }
+
+// Redondeo a 2 decimales (evita 100.00000001 de coma flotante)
+function r2(v) { return Math.round(v * 100) / 100; }
 
 function bindFabInputs() {
     document.querySelectorAll('.fab-mano-btn').forEach(btn => {
@@ -276,9 +386,9 @@ function bindFabInputs() {
     document.getElementById('fabB1')?.addEventListener('change', e => {
         const gaps   = state.bisagrasTotal - 1;
         const maxB1  = state.alturaReal - CONFIG.bisagras_B_minimo - gaps * CONFIG.bisagras_C_minimo;
-        fabState.b1  = clamp(parseInt(e.target.value) || CONFIG.bisagras_B_minimo,
-                             CONFIG.bisagras_B_minimo, maxB1);
-        e.target.value = fabState.b1;
+        fabState.b1  = r2(clamp(parseNum(e.target.value) || CONFIG.bisagras_B_minimo,
+                             CONFIG.bisagras_B_minimo, maxB1));
+        e.target.value = fmt(fabState.b1);
         actualizarCn();
         renderFabSVGs();
     });
@@ -286,9 +396,9 @@ function bindFabInputs() {
     document.getElementById('fabB2')?.addEventListener('change', e => {
         const gaps   = state.bisagrasTotal - 1;
         const maxB2  = state.alturaReal - CONFIG.bisagras_B_minimo - gaps * CONFIG.bisagras_C_minimo;
-        fabState.b2  = clamp(parseInt(e.target.value) || CONFIG.bisagras_B_minimo,
-                             CONFIG.bisagras_B_minimo, maxB2);
-        e.target.value = fabState.b2;
+        fabState.b2  = r2(clamp(parseNum(e.target.value) || CONFIG.bisagras_B_minimo,
+                             CONFIG.bisagras_B_minimo, maxB2));
+        e.target.value = fmt(fabState.b2);
         actualizarCn();
         renderFabSVGs();
     });
@@ -301,9 +411,9 @@ function bindFabInputs() {
             const otrosCs = fabState.csEditables.reduce((s, v, i) => i === idx ? s : s + v, 0);
             const maxC  = state.alturaReal - fabState.b1 - fabState.b2
                           - otrosCs - CONFIG.bisagras_C_minimo; // al menos C_minimo para Cn
-            fabState.csEditables[idx] = clamp(parseInt(e.target.value) || CONFIG.bisagras_C_minimo,
-                                              CONFIG.bisagras_C_minimo, maxC);
-            e.target.value = fabState.csEditables[idx];
+            fabState.csEditables[idx] = r2(clamp(parseNum(e.target.value) || CONFIG.bisagras_C_minimo,
+                                              CONFIG.bisagras_C_minimo, maxC));
+            e.target.value = fmt(fabState.csEditables[idx]);
             actualizarCn();
             renderFabSVGs();
         });
@@ -330,14 +440,32 @@ function bindFabInputs() {
 }
 
 function actualizarCn() {
-    const c1   = calcularCn();
-    const c1El = document.getElementById('fabCn');
-    if (!c1El) return;
-    c1El.value = Math.round(c1);
-    const ok = c1 >= CONFIG.bisagras_C_minimo;
-    c1El.classList.toggle('fab-err', !ok);
+    const Cmin = CONFIG.bisagras_C_minimo;
+    const cn   = calcularCn();
+
+    // Repintar Cn (auto)
+    const cnEl = document.getElementById('fabCn');
+    if (!cnEl) return;
+    cnEl.value = fmt(cn);
+    const cnOk = cn >= Cmin;
+    cnEl.classList.toggle('fab-err', !cnOk);
+
+    // Repintar cada C editable: borde rojo si < mínimo
+    let algunCbajo = !cnOk;
+    fabState.csEditables.forEach((c, i) => {
+        const el = document.getElementById(`fabC${i + 1}`);
+        if (!el) return;
+        const ok = c >= Cmin;
+        el.classList.toggle('fab-err', !ok);
+        if (!ok) algunCbajo = true;
+    });
+
+    // Mensaje único bajo Cn: señaliza si CUALQUIER C está por debajo del mínimo
     const warnEl = document.getElementById('fabCnWarn');
-    if (warnEl) warnEl.classList.toggle('visible', !ok);
+    if (warnEl) warnEl.classList.toggle('visible', algunCbajo);
+
+    // Re-evaluar el bloqueo de PDF/presupuesto: un C < mínimo debe impedir generar
+    actualizarEstadoPDF();
 }
 
 // ==========================================
@@ -379,7 +507,7 @@ function svgDoorFrame(dX, dY, dW, dH, fr, svgId) {
 // eL   = longitud de cada brazo (más largo que el grosor)
 // eW   = grosor del brazo (prop. 20mm/45mm — no cambia)
 function svgBisagrasEsquina(dX, dY, dW, dH, fr, bisLado) {
-    const eW  = fr * (20 / 70);        // grosor brazo — fijo
+    const eW  = fr * (20 / 70);        // grosor brazo — fijo (prop. 20mm/70mm)
     const eL  = fr * 1;             // longitud brazo — más largo
     const off = fr * 0.20;             // separación del borde exterior
     const eSW = Math.max(1.5, fr * 0.12);
@@ -529,10 +657,12 @@ function generarSVGTrasera() {
     s += `<rect width="${VW}" height="${VH}" fill="white"/>`;
     s += svgDoorFrame(dX, dY, dW, dH, fr, 'trasera');
 
-    if (mano) {
+    if (mano && !state.sinMecanizado) {
         // Trasera: bisagras al lado CONTRARIO de mano
         const bisLado = mano === 'izquierda' ? 'derecha' : 'izquierda';
-        const esEsquina = ['HAVA', 'HAVASP'].includes(state.modelo);
+        // Escuadra en L solo para HAVA/HAVASP (tipobisagra 'HAVA').
+        // KABI comparte "bisagra fija a 2" pero se dibuja como círculo (else).
+        const esEsquina = CONFIG.modelos[state.modelo]?.tipobisagra === 'HAVA';
 
         if (esEsquina) {
             // Bisagra tipo escuadra en L — siempre arriba y abajo, sin cotas
@@ -631,12 +761,176 @@ function generarSVGFrontal() {
     if (!lado) {
         const msg = state.tirador && state.tiradorTipo
             ? 'Selecciona mano y posición del tirador'
-            : '(Sin tirador mecanizado)';
-        s += svgText(VW/2, VH - 18, msg, 9, '#aaa', false);
+            : 'Sin tirador mecanizado';
+        const msgSz    = (state.tirador && state.tiradorTipo) ? 9 : 13;
+        const msgColor = (state.tirador && state.tiradorTipo) ? '#aaa' : '#2c3e50';
+        const msgBold  = !(state.tirador && state.tiradorTipo);
+        s += svgText(VW/2, VH - 16, msg, msgSz, msgColor, msgBold);
     }
 
     s += '</svg>';
     return s;
+}
+
+// ==========================================
+// COLUMNA BISAGRAS (producto adjuntado)
+// ==========================================
+function renderBisagras() {
+    const cont = document.getElementById('fabBisagras');
+    if (!cont) return;
+
+    // No se adjuntan: mantener el bloque en su sitio con mensaje
+    if (state.adjuntarBisagras !== true) {
+        cont.innerHTML = `
+            <div class="fab-grupo-label">Bisagras</div>
+            <div class="fab-bis-noadj">No adjuntamos</div>`;
+        return;
+    }
+
+    const tipoBis = CONFIG.modelos[state.modelo].tipobisagra;
+
+    // Estado 3 — KABI/HAVA: posición fija, nada que seleccionar. Solo informar.
+    // Datos ya decididos en el formulario anterior (modelo + acabado).
+    if (tipoBis === 'KABI' || tipoBis === 'HAVA') {
+        const nombreBis = 'Bisagra ' + tipoBis;
+        const imgBis    = CONFIG.bisagras.imagenesFijas[tipoBis];
+        const acabado   = CONFIG.acabados[state.acabado]?.nombre || '-';
+        cont.innerHTML = `
+            <div class="fab-grupo-label">Montaje de bisagra</div>
+            <div class="fab-ficha">
+                <div class="fab-ficha-fila"><span>Modelo</span><strong>${nombreBis}</strong></div>
+                <div class="fab-ficha-fila"><span>Acabado</span><strong>${acabado}</strong></div>
+            </div>
+            <img class="fab-bis-base-img" src="${imgBis}" alt="${nombreBis}" onerror="this.style.display='none'">`;
+        return;
+    }
+
+    const M = CONFIG.bisagras.montajes;
+    const cardsMontaje = Object.keys(M).map(id => `
+        <div class="fab-bis-card${fabState.bisMontaje === id ? ' selected' : ''}" data-bismontaje="${id}">
+            <img src="${M[id].imagen}" alt="${M[id].nombre}" onerror="this.style.display='none'">
+            <span class="fab-bis-card-nombre">${M[id].nombre}</span>
+        </div>`).join('');
+
+    const B = CONFIG.bisagras.bases;
+    const btnsBase = Object.keys(B).map(id => `
+        <button type="button" class="${fabState.bisBase === id ? 'selected' : ''}" data-bisbase="${id}">${B[id].nombre}</button>`).join('');
+
+    // D35-S solo existe en niquelado → ocultar botón negro (no bloquear)
+    const C = CONFIG.bisagras.colores;
+    const coloresDisponibles = tipoBis === 'D35-S'
+        ? Object.keys(C).filter(id => id !== 'negro')
+        : Object.keys(C);
+    const btnsColor = coloresDisponibles.map(id => `
+        <button type="button" class="${fabState.bisColor === id ? 'selected' : ''}" data-biscolor="${id}">${C[id].nombre}</button>`).join('');
+
+    cont.innerHTML = `
+        <div class="fab-bis-titulo-row">
+            <span class="fab-grupo-label" style="margin:0">Montaje de bisagra</span>
+            <button type="button" class="fab-bis-zoom" id="fabBisZoom">🔍 Zoom</button>
+        </div>
+        <div class="fab-bis-cards">${cardsMontaje}</div>
+
+        <div class="fab-grupo-label">Base — para costado de:</div>
+        <img class="fab-bis-base-img" src="${CONFIG.bisagras.imagenBasePorCota[fabState.bisBase] || CONFIG.bisagras.imagenBasePorCota['16']}" alt="Base bisagra" onerror="this.style.display='none'">
+        <div class="fab-bis-toggle">${btnsBase}</div>
+
+        <div class="fab-grupo-label">Color de bisagras</div>
+        <div class="fab-bis-toggle">${btnsColor}</div>`;
+}
+
+function bindBisagras() {
+    document.querySelectorAll('[data-bismontaje]').forEach(el => {
+        el.addEventListener('click', () => {
+            fabState.bisMontaje = el.dataset.bismontaje;
+            renderBisagras(); bindBisagras();
+            actualizarEstadoPDF();
+        });
+    });
+    document.querySelectorAll('[data-bisbase]').forEach(el => {
+        el.addEventListener('click', () => {
+            fabState.bisBase = el.dataset.bisbase;
+            renderBisagras(); bindBisagras();
+            actualizarEstadoPDF();
+        });
+    });
+    document.querySelectorAll('[data-biscolor]').forEach(el => {
+        el.addEventListener('click', () => {
+            fabState.bisColor = el.dataset.biscolor;
+            renderBisagras(); bindBisagras();
+            actualizarEstadoPDF();
+        });
+    });
+    document.getElementById('fabBisZoom')?.addEventListener('click', abrirZoomMontajes);
+}
+
+// Popup con las 3 imágenes de montaje en horizontal
+function abrirZoomMontajes() {
+    const M = CONFIG.bisagras.montajes;
+    const items = Object.keys(M).map(id => `
+        <div class="fab-bis-modal-item">
+            <img src="${M[id].imagen}" alt="${M[id].nombre}" onerror="this.style.opacity=0.3">
+            <span>${M[id].nombre}</span>
+        </div>`).join('');
+
+    const overlay = document.createElement('div');
+    overlay.className = 'fab-bis-modal-overlay';
+    overlay.innerHTML = `
+        <div class="fab-bis-modal">
+            <h3 class="fab-bis-modal-titulo">Montaje de bisagra</h3>
+            <div class="fab-bis-modal-imgs">${items}</div>
+            <button type="button" class="fab-bis-modal-cerrar">Cerrar</button>
+        </div>`;
+
+    const cerrar = () => overlay.remove();
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) cerrar(); });
+    overlay.querySelector('.fab-bis-modal-cerrar').addEventListener('click', cerrar);
+    document.body.appendChild(overlay);
+}
+
+// Bisagras completas: las tres selecciones hechas (o no se adjuntan)
+function bisagrasCompletas() {
+    if (state.adjuntarBisagras !== true) return true;
+    // KABI/HAVA: posición fija, sin selecciones → siempre completas
+    const tipoBis = CONFIG.modelos[state.modelo].tipobisagra;
+    if (tipoBis === 'KABI' || tipoBis === 'HAVA') return true;
+    return fabState.bisMontaje && fabState.bisBase && fabState.bisColor;
+}
+
+// Reparto de cotas válido: ningún hueco C por debajo del mínimo.
+// No aplica a marco limpio (sin mecanizado) ni a bisagras de posición fija.
+function cotasValidas() {
+    if (state.sinMecanizado) return true;
+    if (CONFIG.modelos[state.modelo]?.bisagras_fijas) return true;
+    if (state.bisagrasTotal <= 1) return true;
+    const Cmin = CONFIG.bisagras_C_minimo;
+    const cn = calcularCn();
+    if (cn < Cmin) return false;
+    return fabState.csEditables.every(c => c >= Cmin);
+}
+
+// Habilita/deshabilita el botón de PDF según validez de la captura
+function actualizarEstadoPDF() {
+    const bisOk   = bisagrasCompletas();
+    const cotasOk = cotasValidas();
+    const ok = bisOk && cotasOk;
+
+    // Mensaje según qué falla (prioridad: cotas, luego selección de bisagra)
+    const titulo = cotasOk
+        ? (bisOk ? null : 'Selecciona montaje, base y color de bisagra')
+        : `Hay cotas de bisagra por debajo del mínimo (${CONFIG.bisagras_C_minimo} mm)`;
+
+    const btn = document.getElementById('fabBtnPDF');
+    if (btn) {
+        btn.disabled = !ok;
+        btn.title = ok ? 'Generar PDF' : titulo;
+    }
+
+    const btnPresu = document.getElementById('fabBtnPresupuesto');
+    if (btnPresu) {
+        btnPresu.disabled = !ok;
+        btnPresu.title = ok ? 'Ver presupuesto' : titulo;
+    }
 }
 
 // ==========================================
@@ -650,11 +944,11 @@ function renderFabSVGs() {
 // ==========================================
 // INICIALIZACIÓN
 // ==========================================
+
 function inicializarFabricacion() {
     document.getElementById('fabBtnVolver')?.addEventListener('click', volverConfigurador);
-    document.getElementById('fabBtnPDF')?.addEventListener('click', () => {
-        alert('La generación de PDF estará disponible próximamente.');
-    });
+    // PDF se gestiona desde pdfVitrinas.js
 }
+
 
 document.addEventListener('DOMContentLoaded', inicializarFabricacion);
