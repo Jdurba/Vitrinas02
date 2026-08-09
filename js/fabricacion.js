@@ -23,10 +23,10 @@ let fabFirma = null;
 // Campos de `state` que, al cambiar, invalidan la hoja de fabricación.
 // (numPedido/cliente no afectan al reparto físico y quedan fuera a propósito.)
 const FAB_CAMPOS_FIRMA = [
-    'modelo', 'acabado', 'alturaReal', 'anchoReal',
+    'modelo', 'acabado', 'acabadoEspecial', 'alturaReal', 'anchoReal',
     'bisagrasTotal', 'adjuntarBisagras',
     'tirador', 'tiradorTipo',
-    'vidrioMontado', 'colorVidrio', 'cantidad'
+    'vidrioMontado', 'colorVidrio', 'vidrioEspecial', 'cantidad'
 ];
 
 function calcularFirmaFab() {
@@ -213,16 +213,20 @@ function renderFicha() {
     const vStr = state.vidrioMontado
         ? (state.colorVidrio ? formatearColorVidrio(state.colorVidrio) : 'Sí')
         : 'No';
+    const acabadoEsp = state.acabado === 'ESP' && state.acabadoEspecial;
+    const vidrioEsp  = state.colorVidrio === 'especial' && state.vidrioEspecial;
 
     document.getElementById('fabFicha').innerHTML = `
         <div class="fab-ficha-fila"><span>Modelo</span><strong>${state.modelo} — ${m?.nombre || ''}</strong></div>
         <div class="fab-ficha-fila"><span>Acabado</span><strong>${a?.nombre || '-'}</strong></div>
+        ${acabadoEsp ? `<div class="fab-ficha-fila"><span>Acabado especial</span><strong>${state.acabadoEspecial}</strong></div>` : ''}
         <div class="fab-ficha-fila"><span>Alto × Ancho</span><strong>${state.alturaReal} × ${state.anchoReal} mm</strong></div>
         <div class="fab-ficha-fila"><span>Medida vidrio</span><strong>${state.vidrioAlto} × ${state.vidrioAncho} mm</strong></div>
         <div class="fab-ficha-fila"><span>Cantidad</span><strong>${state.cantidad} ud.</strong></div>
         <div class="fab-ficha-fila"><span>Bisagras</span><strong>${state.bisagrasTotal}</strong></div>
         ${t ? `<div class="fab-ficha-fila"><span>Tirador</span><strong>${t.medidas}</strong></div>` : ''}
         <div class="fab-ficha-fila"><span>Vidrio</span><strong>${vStr}</strong></div>
+        ${vidrioEsp ? `<div class="fab-ficha-fila"><span>Vidrio especial</span><strong>${state.vidrioEspecial}</strong></div>` : ''}
     `;
 }
 

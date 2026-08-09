@@ -241,6 +241,15 @@ function componerObservaciones() {
     }
 
     partes.push(bisagrasTxt);
+
+    // Texto libre de especiales (si aplica), al final para no romper el resto.
+    if (state.acabado === 'ESP' && state.acabadoEspecial) {
+        partes.push(`Acabado especial: ${state.acabadoEspecial}`);
+    }
+    if (state.colorVidrio === 'especial' && state.vidrioEspecial) {
+        partes.push(`Vidrio especial: ${state.vidrioEspecial}`);
+    }
+
     return partes.join(' - ');
 }
 
@@ -407,7 +416,11 @@ function volverDePresupuesto() {
     mostrarVista('fab');
 }
 
+// Último resultado calculado (para reutilizar en el PDF nativo sin recalcular)
+let PRESU_ULTIMO = null;
+
 function pintarInforme(r) {
+    PRESU_ULTIMO = r;
     const m  = CONFIG.modelos[state.modelo];
     const a  = CONFIG.acabados[state.acabado];
 
@@ -432,9 +445,11 @@ function pintarInforme(r) {
         (state.cliente ? dato('Cliente / Ref.', state.cliente) : '') +
         dato('Modelo', state.modelo + ' — ' + m.nombre) +
         dato('Acabado', a.nombre) +
+        (state.acabado === 'ESP' && state.acabadoEspecial ? dato('Acabado especial', state.acabadoEspecial) : '') +
         dato('Medidas vitrina', state.anchoReal + ' × ' + state.alturaReal + ' mm') +
         dato('Medida vidrio', state.vidrioAncho + ' × ' + state.vidrioAlto + ' mm') +
         dato('Vidrio montado', state.vidrioMontado ? 'Sí — ' + CONFIG.coloresVidrio[state.colorVidrio].nombre : 'No') +
+        (state.colorVidrio === 'especial' && state.vidrioEspecial ? dato('Vidrio especial', state.vidrioEspecial) : '') +
         dato('Bisagras', state.bisagrasTotal + (state.sinMecanizado ? ' (sin mecanizar)' : (state.bisagrasExtras > 0 ? ' (' + state.bisagrasExtras + ' extra)' : ''))) +
         dato('Tirador', state.tirador && state.tiradorTipo ? CONFIG.tiradores[state.tiradorTipo].medidas : 'No') +
         dato('Cantidad', state.cantidad + ' ud.');
@@ -444,6 +459,9 @@ function pintarInforme(r) {
         `<button type="button" class="btn-copia" data-copia="${String(valor).replace(/"/g, '&quot;')}"
                  title="Copiar" data-html2canvas-ignore>📋</button>`;
 
+    const celUnit = (l) => l.consultar
+        ? '<span class="incluido">consultar</span>'
+        : (l.precioUnit != null ? fmtEur(l.precioUnit) : '');
     const celPrecio = (l) => l.consultar
         ? '<span class="incluido">consultar</span>'
         : fmtEur(l.importe);
@@ -456,6 +474,7 @@ function pintarInforme(r) {
             <td class="cod">${l.codigo}</td>
             <td>${l.denom}${dtoTxt}</td>
             <td class="num">${l.cantidad}</td>
+            <td class="num">${celUnit(l)}</td>
             <td class="num">${celPrecio(l)}</td>
         </tr>`;
 
@@ -464,7 +483,7 @@ function pintarInforme(r) {
             filas += `<tr class="obs">
                 <td class="copia" data-html2canvas-ignore>${btnCopia(r.observaciones)}</td>
                 <td></td>
-                <td colspan="3">${r.observaciones}</td>
+                <td colspan="4">${r.observaciones}</td>
             </tr>`;
         }
     }
@@ -500,7 +519,8 @@ function pintarInforme(r) {
     };
 }
 
-// ── PDF: captura fiel de la hoja A4 con html2canvas ─────────────
+// ── PDF NATIVO: redibujado con jsPDF + autotable ────────────────
+// Texto seleccionable, nitidez vectorial, peso mínimo. Sin html2canvas.
 async function generarPDFPresupuesto() {
     const btn = document.getElementById('presuBtnPDF');
     const textoOrig = btn.textContent;
@@ -509,33 +529,155 @@ async function generarPDFPresupuesto() {
 
     try {
         const { jsPDF } = window.jspdf;
-        const hoja = document.getElementById('presu-informe-container');
-
-        const canvas = await html2canvas(hoja, {
-            scale: 2,
-            useCORS: true,
-            backgroundColor: '#ffffff'
-        });
+        const r = PRESU_ULTIMO || calcularPresupuestoCompleto();
+        const m = CONFIG.modelos[state.modelo];
+        const a = CONFIG.acabados[state.acabado];
 
         const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
-        const pw = pdf.internal.pageSize.getWidth();    // 210
-        const ph = pdf.internal.pageSize.getHeight();   // 297
-        const imgW = pw;
-        const imgH = canvas.height * pw / canvas.width;
+        // autoTable v5 en navegador: método pdf.autoTable(opts). Fallback a función global.
+        const runAutoTable = (opts) => {
+            if (typeof pdf.autoTable === 'function') return pdf.autoTable(opts);
+            const fn = window.autoTable || window.jspdf?.autoTable;
+            if (typeof fn === 'function') return fn(pdf, opts);
+            throw new Error('autoTable no disponible');
+        };
 
-        const imgData = canvas.toDataURL('image/jpeg', 0.92);
+        const W = 210, mL = 14, mR = 14, contentW = W - mL - mR;
+        const AZUL = [45, 58, 75];
+        const GRIS = [90, 90, 90];
+        let y = 12;
 
-        if (imgH <= ph) {
-            pdf.addImage(imgData, 'JPEG', 0, 0, imgW, imgH);
-        } else {
-            let restante = imgH;
-            let posicion = 0;
-            while (restante > 0) {
-                pdf.addImage(imgData, 'JPEG', 0, posicion, imgW, imgH);
-                restante -= ph;
-                if (restante > 0) { pdf.addPage(); posicion -= ph; }
+        // ── CABECERA: logo + título ──
+        const logoUrl = 'https://jdurba.github.io/General/img/LOGO_2025_Negro.png';
+        const logoData = await cargarImagenComoData(logoUrl, 34, 13, 'PNG');
+        if (logoData) {
+            const f = fitImageInBox(logoData.naturalWidth, logoData.naturalHeight, 34, 13);
+            pdf.addImage(logoData.dataUrl, 'PNG', mL + f.offsetX, y + f.offsetY, f.w, f.h);
+        }
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(15); pdf.setTextColor(...AZUL);
+        pdf.text('PRESUPUESTO', W - mR, y + 6, { align: 'right' });
+        pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(...GRIS);
+        pdf.text(new Date().toLocaleDateString('es-ES'), W - mR, y + 11, { align: 'right' });
+        y += 20;
+
+        pdf.setDrawColor(...AZUL); pdf.setLineWidth(0.4);
+        pdf.line(mL, y, W - mR, y);
+        y += 6;
+
+        // ── TÍTULO: PARÁMETROS SELECCIONADOS (banda gris, como ARTÍCULOS) ──
+        pdf.setFillColor(230, 230, 230);
+        pdf.rect(mL, y, contentW, 7, 'F');
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(9); pdf.setTextColor(...AZUL);
+        pdf.text('PARÁMETROS SELECCIONADOS', mL + 3, y + 4.8);
+        y += 10;
+
+        // ── BLOQUE DATOS: imagen perfil (izq) + parámetros (der) ──
+        const imgBoxW = 46, imgBoxH = 46;
+        const perfilUrl = `https://raw.githubusercontent.com/Jdurba/Vitrinas/main/Imagenes/${m.imagen || state.modelo}_cotas.jpg`;
+        const perfilImg = await cargarImagenComoData(perfilUrl, imgBoxW, imgBoxH, 'JPEG');
+        const yDatos = y;
+        if (perfilImg) {
+            const f = fitImageInBox(perfilImg.naturalWidth, perfilImg.naturalHeight, imgBoxW, imgBoxH);
+            pdf.addImage(perfilImg.dataUrl, 'JPEG', mL + f.offsetX, yDatos + f.offsetY, f.w, f.h);
+        }
+
+        // Parámetros a la derecha de la imagen
+        const datos = [];
+        if (state.numPedido) datos.push(['Nº Pedido', state.numPedido]);
+        if (state.cliente)   datos.push(['Cliente / Ref.', state.cliente]);
+        datos.push(['Modelo', state.modelo + ' — ' + m.nombre]);
+        datos.push(['Acabado', a.nombre]);
+        if (state.acabado === 'ESP' && state.acabadoEspecial) datos.push(['Acabado especial', state.acabadoEspecial]);
+        datos.push(['Medidas vitrina', state.anchoReal + ' × ' + state.alturaReal + ' mm']);
+        datos.push(['Medida vidrio', state.vidrioAncho + ' × ' + state.vidrioAlto + ' mm']);
+        datos.push(['Vidrio montado', state.vidrioMontado ? 'Sí — ' + CONFIG.coloresVidrio[state.colorVidrio].nombre : 'No']);
+        if (state.colorVidrio === 'especial' && state.vidrioEspecial) datos.push(['Vidrio especial', state.vidrioEspecial]);
+        datos.push(['Bisagras', String(state.bisagrasTotal) + (state.sinMecanizado ? ' (sin mecanizar)' : (state.bisagrasExtras > 0 ? ' (' + state.bisagrasExtras + ' extra)' : ''))]);
+        datos.push(['Tirador', state.tirador && state.tiradorTipo ? CONFIG.tiradores[state.tiradorTipo].medidas : 'No']);
+        datos.push(['Cantidad', state.cantidad + ' ud.']);
+
+        const datosX = mL + imgBoxW + 8;
+        const labelW = 34;
+        let yd = yDatos + 2;
+        pdf.setFontSize(8.5);
+        for (const [label, valor] of datos) {
+            pdf.setFont('helvetica', 'bold'); pdf.setTextColor(...GRIS);
+            pdf.text(label, datosX, yd);
+            pdf.setFont('helvetica', 'normal'); pdf.setTextColor(30, 30, 30);
+            pdf.text(String(valor), datosX + labelW, yd);
+            yd += 5;
+        }
+
+        y = Math.max(yDatos + imgBoxH, yd) + 6;
+
+        // ── AVISO vidrio templado (siempre) ──
+        pdf.setFillColor(255, 249, 219);
+        pdf.setDrawColor(230, 200, 100); pdf.setLineWidth(0.2);
+        pdf.rect(mL, y, contentW, 7, 'FD');
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(7.5); pdf.setTextColor(120, 90, 20);
+        pdf.text('IMPORTANTE: Todos los cálculos están realizados para emplear vidrio templado de 4 mm',
+                 mL + 3, y + 4.6);
+        y += 11;
+
+        // ── TÍTULO DE SECCIÓN: ARTÍCULOS (banda gris, como la vista) ──
+        pdf.setFillColor(230, 230, 230);
+        pdf.rect(mL, y, contentW, 7, 'F');
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(9); pdf.setTextColor(...AZUL);
+        pdf.text('ARTÍCULOS', mL + 3, y + 4.8);
+        y += 10;
+
+        // ── TABLA DE ARTÍCULOS (autotable, texto seleccionable) ──
+        const fmtCel = (l, campo) => {
+            if (l.consultar) return 'consultar';
+            if (campo === 'unit') return l.precioUnit != null ? fmtEur(l.precioUnit) : '';
+            return fmtEur(l.importe);
+        };
+
+        const body = [];
+        for (const l of r.lineas) {
+            const denom = l.denom + (l.dto ? `  (Dto ${l.dto}%)` : '');
+            body.push([l.codigo || '', denom, String(l.cantidad ?? ''), fmtCel(l, 'unit'), fmtCel(l, 'sub')]);
+            // Observaciones ligadas a la vitrina, fila que ocupa toda la fila de descripción
+            if (l.tipo === 'vitrina' && r.observaciones) {
+                body.push([{ content: r.observaciones, colSpan: 5, styles: { fontStyle: 'italic', textColor: [110, 110, 110], fontSize: 7.5 } }]);
             }
         }
+
+        runAutoTable({
+            startY: y,
+            head: [['Código', 'Descripción', 'Cant.', 'P. Unit.', 'Subtotal']],
+            body,
+            theme: 'grid',
+            margin: { left: mL, right: mR },
+            styles: { fontSize: 8, cellPadding: 1.6, lineColor: [50, 50, 50], lineWidth: 0.1, textColor: [30, 30, 30] },
+            headStyles: { fillColor: [221, 221, 221], textColor: [40, 40, 40], fontStyle: 'bold', halign: 'left' },
+            columnStyles: {
+                0: { cellWidth: 28, fontStyle: 'bold' },
+                1: { cellWidth: 'auto' },
+                2: { cellWidth: 14, halign: 'right' },
+                3: { cellWidth: 24, halign: 'right' },
+                4: { cellWidth: 24, halign: 'right' }
+            }
+        });
+
+        y = pdf.lastAutoTable.finalY + 4;
+
+        // ── TOTAL ──
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11); pdf.setTextColor(...AZUL);
+        const totalTxt = r.consultar ? 'CONSULTAR' : fmtEur(r.total);
+        pdf.text('TOTAL:', W - mR - 40, y + 2, { align: 'right' });
+        pdf.text(totalTxt, W - mR, y + 2, { align: 'right' });
+        y += 8;
+        if (r.consultar) {
+            pdf.setFont('helvetica', 'italic'); pdf.setFontSize(8); pdf.setTextColor(...GRIS);
+            pdf.text('Alguna línea requiere consulta de precio.', W - mR, y, { align: 'right' });
+            y += 5;
+        }
+
+        // ── PIE / versión ──
+        const H = 297;
+        pdf.setFont('helvetica', 'normal'); pdf.setFontSize(6.5); pdf.setTextColor(200, 200, 200);
+        pdf.text(window.VERSION_APP ? 'Adinor · Vitrinas · ' + window.VERSION_APP : 'Adinor · Vitrinas', W - mR, H - 6, { align: 'right' });
 
         const fechaArch = new Date().toLocaleDateString('es-ES').replace(/\//g, '-');
         const nombrePDF = state.numPedido

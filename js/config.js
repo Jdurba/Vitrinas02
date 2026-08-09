@@ -21,17 +21,17 @@ const CONFIG = {
         '7991':   { nombre: '20x45 P8',      maxAltura: 2500, maxAncho: 600, minAltura: 220, minAncho: 150, imagen: '7991',   acabados: ['PM','P','B','BM03','NM','RB','NG'], DescV_Alt: 5, DescV_Anc: 5, codeTipo: '01', denominacion: 'VITRINA 20X45 P8', tipobisagra: 'D35',  tiradoresValidos: ['79971','7997','7794'], },
         '7994':   { nombre: '20x45 P4',      maxAltura: 2500, maxAncho: 600, minAltura: 220, minAncho: 150, imagen: '7994',   acabados: ['PM','P','B','NM'], DescV_Alt: 5, DescV_Anc: 5, codeTipo: '02', denominacion: 'VITRINA 20X45 P4' , tipobisagra: 'D35',  tiradoresValidos: ['79971','7997','7794'], },
         '7995':   { nombre: '35x45 P8',      maxAltura: 2800, maxAncho: 600, minAltura: 220, minAncho: 150, imagen: '7995',   acabados: ['PM','P','B','BM03','NM'], DescV_Alt: 5, DescV_Anc: 5, sinTirador: true, codeTipo: '03', denominacion: 'VITRINA 35X45 P8' , tipobisagra: 'D35' },
-        '7990':   { nombre: '20x45 P20',     maxAltura: 2500, maxAncho: 600, minAltura: 220, minAncho: 150, imagen: '7990',   acabados: ['PM','P','B','NM'], DescV_Alt: 5, DescV_Anc: 5, codeTipo: '04', denominacion: 'VITRINA 20X45 P20' , tipobisagra: 'D35',  tiradoresValidos: ['79971','7997','7794'], },
-        '7998':   { nombre: '20x45 P45',     maxAltura: 2500, maxAncho: 600, minAltura: 220, minAncho: 150, imagen: '7998',   acabados: ['PM','P','B','NM','RB'], DescV_Alt: 40, DescV_Anc: 40, codeTipo: '05', denominacion: 'VITRINA 20X45 P45' , tipobisagra: 'D35',   tiradoresValidos: ['79971','7997','7794'], },
-        '7993':   { nombre: '19x21',         maxAltura: 2500, maxAncho: 600, minAltura: 220, minAncho: 150, imagen: '7993',   acabados: ['PM','P','B','NM','RB','NG'], DescV_Alt: 5, DescV_Anc: 5, codeTipo: '06', denominacion: 'VITRINA 19X21' , tipobisagra: 'ALU20',  tiradoresValidos: ['79971','7997'], },
+        '7990':   { nombre: '20x45 P20',     maxAltura: 2500, maxAncho: 600, minAltura: 220, minAncho: 150, imagen: '7990',   acabados: ['PM','P','B','NM'], DescV_Alt: 29, DescV_Anc: 29, codeTipo: '04', denominacion: 'VITRINA 20X45 P20' , tipobisagra: 'D35',  tiradoresValidos: ['79971','7997','7794'], },
+        '7998':   { nombre: '20x45 P45',     maxAltura: 2500, maxAncho: 600, minAltura: 220, minAncho: 150, imagen: '7998',   acabados: ['PM','P','B','NM','RB'], DescV_Alt: 80, DescV_Anc: 80, codeTipo: '05', denominacion: 'VITRINA 20X45 P45' , tipobisagra: 'D35',   tiradoresValidos: ['79971','7997','7794'], },
+        '7993':   { nombre: '19x21',         maxAltura: 2500, maxAncho: 600, minAltura: 220, minAncho: 150, imagen: '7993',   acabados: ['PM','P','B','NM','RB','NG'], DescV_Alt: 28, DescV_Anc: 28, codeTipo: '06', denominacion: 'VITRINA 19X21' , tipobisagra: 'ALU20',  tiradoresValidos: ['79971','7997'], },
         '7996':   { nombre: '20x18 P8',      maxAltura: 2500, maxAncho: 600, minAltura: 220, minAncho: 150, imagen: '7996',   acabados: ['PM','P','B','NM','RB','NG'], DescV_Alt: 5, DescV_Anc: 5, codeTipo: '07', denominacion: 'VITRINA 20X18 P8' , tipobisagra: 'ALU20',  tiradoresValidos: ['79971','7997'], },
-        '7999':   { nombre: '16x60 S/P',     maxAltura: 2600, maxAncho: 600, minAltura: 220, minAncho: 150, imagen: '7999',   acabados: ['PM','P','B','NM'], DescV_Alt: 2, DescV_Anc: 2, sinTirador: true, codeTipo: '08', denominacion: 'VITRINA 16X60 S/P' , tipobisagra: 'D35'  },
-        '79916':  { nombre: '20x56 C/P',     maxAltura: 2500, maxAncho: 600, minAltura: 220, minAncho: 150, imagen: '79916',  acabados: ['PM','P','B','NM'], DescV_Alt: 3, DescV_Anc: 3, codeTipo: '09', denominacion: 'VITRINA 20X56 C/P' , tipobisagra: 'D35',    tiradoresValidos: ['79971','7997','7794'], },
-        'BT100':  { nombre: 'Perfil BT100',  maxAltura: 2500, maxAncho: 600, minAltura: 220, minAncho: 150, imagen: 'BT100',  acabados: ['PM','P','B','NM'], DescV_Alt: 15, DescV_Anc: 15, codeTipo: '10', denominacion: 'VITRINA PERFIL BT100' , tipobisagra: 'D35-S',   tiradoresValidos: ['7794'], },
-        'BT110':  { nombre: 'Perfil BT110',  maxAltura: 2700, maxAncho: 600, minAltura: 220, minAncho: 150, imagen: 'BT110',  acabados: ['PM','P','B','NM'], DescV_Alt: 50, DescV_Anc: 50, codeTipo: '11', denominacion: 'VITRINA PERFIL BT110' , tipobisagra: 'D35',    tiradoresValidos: ['7794'], },
-        'KABI':   { nombre: 'Perfiles KABI', maxAltura: 2800, maxAncho: 600, minAltura: 400, minAncho: 150, imagen: 'Kabi',   acabados: ['BM03','NM','BR'], bisagras_fijas: 2, DescV_Alt: 20, DescV_Anc: 20, sinTirador: true, codeTipo: '21', denominacion: 'VITRINA PERFILES KABI' , tipobisagra: 'KABI'  },
-        'HAVA':   { nombre: 'Perfiles HAVA', maxAltura: 2800, maxAncho: 600, minAltura: 350, minAncho: 150, imagen: 'Hava',   acabados: ['BM03','NM','BR'], bisagras_fijas: 2, DescV_Alt: 3, DescV_Anc: 3, sinTirador: true, codeTipo: '22', denominacion: 'VITRINA PERFILES HAVA' , tipobisagra: 'HAVA'  },
-        'HAVASP': { nombre: 'HAVA S/P',      maxAltura: 2800, maxAncho: 600, minAltura: 350, minAncho: 150, imagen: 'HavaSP', acabados: ['BM03','NM','BR'], bisagras_fijas: 2, DescV_Alt: 3, DescV_Anc: 3, sinTirador: true, codeTipo: '23', denominacion: 'VITRINA HAVA S/P' , tipobisagra: 'HAVA'   }
+        '7999':   { nombre: '16x60 S/P',     maxAltura: 2600, maxAncho: 600, minAltura: 220, minAncho: 150, imagen: '7999',   acabados: ['PM','P','B','NM'], DescV_Alt: 1, DescV_Anc: 1, sinTirador: true, codeTipo: '08', denominacion: 'VITRINA 16X60 S/P' , tipobisagra: 'D35'  },
+        '79916':  { nombre: '20x56 C/P',     maxAltura: 2500, maxAncho: 600, minAltura: 220, minAncho: 150, imagen: '79916',  acabados: ['PM','P','B','NM'], DescV_Alt: 5, DescV_Anc: 5, codeTipo: '09', denominacion: 'VITRINA 20X56 C/P' , tipobisagra: 'D35',    tiradoresValidos: ['79971','7997','7794'], },
+        'BT100':  { nombre: 'Perfil BT100',  maxAltura: 2500, maxAncho: 600, minAltura: 220, minAncho: 150, imagen: 'BT100',  acabados: ['PM','P','B','NM'], DescV_Alt: 24, DescV_Anc: 24, codeTipo: '10', denominacion: 'VITRINA PERFIL BT100' , tipobisagra: 'D35-S',   tiradoresValidos: ['7794'], },
+        'BT110':  { nombre: 'Perfil BT110',  maxAltura: 2700, maxAncho: 600, minAltura: 220, minAncho: 150, imagen: 'BT110',  acabados: ['PM','P','B','NM'], DescV_Alt: 93, DescV_Anc: 93, codeTipo: '11', denominacion: 'VITRINA PERFIL BT110' , tipobisagra: 'D35',    tiradoresValidos: ['7794'], },
+        'KABI':   { nombre: 'Perfiles KABI', maxAltura: 2800, maxAncho: 600, minAltura: 400, minAncho: 150, imagen: 'Kabi',   acabados: ['BM03','NM','BR'], bisagras_fijas: 2, DescV_Alt: 6, DescV_Anc: 24, sinTirador: true, codeTipo: '21', denominacion: 'VITRINA PERFILES KABI' , tipobisagra: 'KABI'  },
+        'HAVA':   { nombre: 'Perfiles HAVA', maxAltura: 2800, maxAncho: 600, minAltura: 350, minAncho: 150, imagen: 'Hava',   acabados: ['BM03','NM','BR'], bisagras_fijas: 2, DescV_Alt: 7, DescV_Anc: 7, sinTirador: true, codeTipo: '22', denominacion: 'VITRINA PERFILES HAVA' , tipobisagra: 'HAVA'  },
+        'HAVASP': { nombre: 'HAVA S/P',      maxAltura: 2800, maxAncho: 600, minAltura: 350, minAncho: 150, imagen: 'HavaSP', acabados: ['BM03','NM','BR'], bisagras_fijas: 2, DescV_Alt: 7, DescV_Anc: 7, sinTirador: true, codeTipo: '23', denominacion: 'VITRINA HAVA S/P' , tipobisagra: 'HAVA'   }
     },
     acabados: {
         // grupoPrecio → columna Acabado del CSV de tarifas
@@ -60,19 +60,19 @@ const CONFIG = {
         '79971': {
             nombre: 'Tirador 126x35',
             medidas: '126 × 35 mm',
-            acabados: ['PM','P','B','BM03','NM'],
+            acabados: ['PM','P','B','BM03','NM','ESP'],
             imagen: 'https://raw.githubusercontent.com/Jdurba/Vitrinas/main/Imagenes/126x35.jpg'
         },
         '7997': {
             nombre: 'Tirador 37x16',
             medidas: '37 × 16 mm',
-            acabados: ['PM','P','B','BM03','NM','RB','NG'],
+            acabados: ['PM','P','B','BM03','NM','RB','NG','ESP'],
             imagen: 'https://raw.githubusercontent.com/Jdurba/Vitrinas/main/Imagenes/37x16.jpg'
         },
         '7794': {
             nombre: 'Tirador 48x14',
             medidas: '48 × 14 mm',
-            acabados: ['PM','P','B','BM03','NM'],
+            acabados: ['PM','P','B','BM03','NM','ESP'],
             imagen: 'https://raw.githubusercontent.com/Jdurba/Vitrinas/main/Imagenes/48x14.jpg'
         }
     },

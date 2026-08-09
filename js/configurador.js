@@ -4,6 +4,8 @@
 const state = {
     modelo: null,
     acabado: null,
+    acabadoEspecial: '',   // texto libre, solo relevante si acabado === 'ESP'
+    vidrioEspecial: '',    // texto libre, solo relevante si colorVidrio === 'especial'
     alturaModulo: 0,
     alturaDescuento: 2,
     alturaReal: 0,
@@ -71,6 +73,10 @@ const elementos = {
     vidrioMontado: document.getElementById('vidrioMontado'),
     colorVidrio: document.getElementById('colorVidrio'),
     colorVidrioLabel: document.getElementById('colorVidrioLabel'),
+    acabadoEspecial: document.getElementById('acabadoEspecial'),
+    acabadoEspecialGroup: document.getElementById('acabadoEspecialGroup'),
+    vidrioEspecial: document.getElementById('vidrioEspecial'),
+    vidrioEspecialGroup: document.getElementById('vidrioEspecialGroup'),
     resumenModelo: document.getElementById('resumenModelo'),
     resumenAcabado: document.getElementById('resumenAcabado'),
     resumenDimensiones: document.getElementById('resumenDimensiones'),
@@ -128,6 +134,15 @@ async function init() {
 
     elementos.vidrioMontado?.addEventListener('change', actualizarVidrio);
     elementos.colorVidrio?.addEventListener('change', actualizarColorVidrio);
+
+    elementos.acabadoEspecial?.addEventListener('input', e => {
+        state.acabadoEspecial = e.target.value.trim();
+        validarFormulario();
+    });
+    elementos.vidrioEspecial?.addEventListener('input', e => {
+        state.vidrioEspecial = e.target.value.trim();
+        validarFormulario();
+    });
 
     elementos.btnFabricar?.addEventListener('click', pasarAFabricacion);
     elementos.btnReset?.addEventListener('click', resetearDatos);
@@ -333,9 +348,22 @@ function seleccionarAcabado(item) {
     elementos.acabados.forEach(i => i.classList.remove('selected'));
     item.classList.add('selected');
     state.acabado = item.dataset.acabado;
+    actualizarCampoAcabadoEspecial();
     actualizarDisponibilidadTirador();
     actualizarResumen();
     validarFormulario();
+}
+
+// Muestra el campo de texto solo si el acabado es ESP; al ocultarlo borra el dato.
+function actualizarCampoAcabadoEspecial() {
+    const esEspecial = state.acabado === 'ESP';
+    if (elementos.acabadoEspecialGroup) {
+        elementos.acabadoEspecialGroup.style.display = esEspecial ? 'flex' : 'none';
+    }
+    if (!esEspecial) {
+        state.acabadoEspecial = '';
+        if (elementos.acabadoEspecial) elementos.acabadoEspecial.value = '';
+    }
 }
 
 // ==========================================
@@ -766,14 +794,28 @@ function actualizarVidrio(e) {
         if (elementos.colorVidrio) elementos.colorVidrio.value = '';
     }
 
+    actualizarCampoVidrioEspecial();
     actualizarResumen();
     validarFormulario();
 }
 
 function actualizarColorVidrio(e) {
     state.colorVidrio = e.target.value;
+    actualizarCampoVidrioEspecial();
     actualizarResumen();
     validarFormulario();
+}
+
+// Muestra el campo de texto solo si el vidrio está montado y es 'especial'; al ocultarlo borra el dato.
+function actualizarCampoVidrioEspecial() {
+    const esEspecial = state.vidrioMontado && state.colorVidrio === 'especial';
+    if (elementos.vidrioEspecialGroup) {
+        elementos.vidrioEspecialGroup.style.display = esEspecial ? 'flex' : 'none';
+    }
+    if (!esEspecial) {
+        state.vidrioEspecial = '';
+        if (elementos.vidrioEspecial) elementos.vidrioEspecial.value = '';
+    }
 }
 
 // ==========================================
@@ -867,6 +909,9 @@ function validarFormulario() {
     const tiradorValido   = !state.tirador || (state.tirador && state.tiradorTipo);
     const vidrioValido    = !state.vidrioMontado || (state.vidrioMontado && state.colorVidrio !== '');
     const adjuntarValido  = state.adjuntarBisagras !== null;   // exige respuesta explícita Sí/No
+    // Si se elige especial (acabado o vidrio), el texto es obligatorio.
+    const acabadoEspValido = state.acabado !== 'ESP' || state.acabadoEspecial !== '';
+    const vidrioEspValido  = state.colorVidrio !== 'especial' || state.vidrioEspecial !== '';
 
     const completo =
         state.modelo  !== null &&
@@ -877,7 +922,9 @@ function validarFormulario() {
         bisagrasValidas &&
         adjuntarValido &&
         tiradorValido &&
-        vidrioValido;
+        vidrioValido &&
+        acabadoEspValido &&
+        vidrioEspValido;
 
     if (elementos.btnFabricar) elementos.btnFabricar.disabled = !completo;
 }
@@ -893,6 +940,8 @@ function ejecutarReset() {
     state.modelo = null;
     actualizarVistaPrevia();
     state.acabado = null;
+    state.acabadoEspecial = '';
+    state.vidrioEspecial = '';
     state.alturaModulo = 0;
     state.alturaDescuento = 2;
     state.alturaReal = 0;
@@ -933,6 +982,10 @@ function ejecutarReset() {
     if (elementos.cantidad)       elementos.cantidad.value = '1';
     if (elementos.numPedido)      elementos.numPedido.value = '';
     if (elementos.cliente)        elementos.cliente.value = '';
+    if (elementos.acabadoEspecial) elementos.acabadoEspecial.value = '';
+    if (elementos.vidrioEspecial)  elementos.vidrioEspecial.value = '';
+    if (elementos.acabadoEspecialGroup) elementos.acabadoEspecialGroup.style.display = 'none';
+    if (elementos.vidrioEspecialGroup)  elementos.vidrioEspecialGroup.style.display = 'none';
 
     if (elementos.sinMecanizado) {
         elementos.sinMecanizado.checked = false;

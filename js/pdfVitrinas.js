@@ -8,60 +8,282 @@ function mostrarModalPDF() {
     generarPDFVitrinas(state.numPedido || '', state.cliente || '');
 }
 
-// ── CONVERTIR SVG del DOM a imagen PNG (dataURL) ─────
-function svgToImage(svgContainerId, width, height) {
-    return new Promise((resolve) => {
-        const container = document.getElementById(svgContainerId);
-        if (!container) return resolve(null);
+// ============================================================
+// DIBUJO TÉCNICO NATIVO (jsPDF) — reemplaza svg2pdf
+// Replica generarSVGTrasera/Frontal de fabricacion.js con
+// primitivas jsPDF. Vector real, peso mínimo. Reutiliza las
+// mismas fórmulas de coordenadas (calcularCn, getBisagraPxPositions,
+// getTiradorLado) para no duplicar lógica.
+//
+// Sistema de coordenadas interno del dibujo: viewBox 0..VW × 0..VH
+// (400×560), igual que el SVG. Un helper 'M' mapea esas coordenadas
+// al rectángulo destino del PDF (x0,y0,w,h en mm).
+// ============================================================
 
-        const svgEl = container.querySelector('svg');
-        if (!svgEl) return resolve(null);
+// Colores del dibujo (mismos del SVG, en RGB para jsPDF)
+const D_FRAME = [44, 62, 80];    // #2c3e50
+const D_DIM   = [26, 26, 26];    // #1a1a1a
+const D_TIR   = [26, 26, 46];    // #1a1a2e
+const D_GLASS = [214, 234, 248]; // #d6eaf8  cristal plano azulado
+const D_FRAMEFILL = [176, 190, 197]; // #b0bec5 perfil
 
-        const clone = svgEl.cloneNode(true);
-        clone.setAttribute('width', width);
-        clone.setAttribute('height', height);
+// Crea un mapeador de coordenadas dibujo(px)→PDF(mm) para un rect destino.
+function crearMapa(x0, y0, w, h, VW, VH) {
+    const sx = w / VW, sy = h / VH;
+    return {
+        x: (px) => x0 + px * sx,
+        y: (py) => y0 + py * sy,
+        s: (v)  => v * sx,   // escala genérica (usa X; el dibujo mantiene proporción)
+        sx, sy
+    };
+}
 
-        const svgData = new XMLSerializer().serializeToString(clone);
-        const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
+// Marco de la puerta: perfil + ingletes + cristal (relleno plano azulado)
+function pdfDoorFrame(pdf, M, dX, dY, dW, dH, fr, conVidrio) {
+    // Perfil exterior (relleno gris, borde azul)
+    pdf.setFillColor(...D_FRAMEFILL);
+    pdf.setDrawColor(...D_FRAME);
+    pdf.setLineWidth(0.5);
+    pdf.rect(M.x(dX), M.y(dY), M.s(dW), M.s(dH), 'FD');
 
-        const img = new Image();
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = width * 2;   // 2x para nitidez
-            canvas.height = height * 2;
-            const ctx = canvas.getContext('2d');
-            ctx.scale(2, 2);
-            ctx.drawImage(img, 0, 0, width, height);
-            URL.revokeObjectURL(url);
-            resolve(canvas.toDataURL('image/png'));
-        };
-        img.onerror = () => {
-            URL.revokeObjectURL(url);
-            resolve(null);
-        };
-        img.src = url;
-    });
+    // Ingletes (líneas diagonales de esquina)
+    pdf.setLineWidth(0.35);
+    const line = (x1, y1, x2, y2) => pdf.line(M.x(x1), M.y(y1), M.x(x2), M.y(y2));
+    line(dX,      dY,      dX + fr,      dY + fr);
+    line(dX + dW, dY,      dX + dW - fr, dY + fr);
+    line(dX,      dY + dH, dX + fr,      dY + dH - fr);
+    line(dX + dW, dY + dH, dX + dW - fr, dY + dH - fr);
+
+    // Cristal interior (plano azulado si hay vidrio, blanco si no)
+    if (conVidrio) pdf.setFillColor(...D_GLASS);
+    else           pdf.setFillColor(255, 255, 255);
+    pdf.setDrawColor(170, 170, 170);
+    pdf.setLineWidth(0.2);
+    pdf.rect(M.x(dX + fr), M.y(dY + fr), M.s(dW - 2*fr), M.s(dH - 2*fr), 'FD');
+}
+
+// Bisagra escuadra en L (HAVA/HAVASP) — polígono cerrado relleno blanco
+function pdfBisagraEsquina(pdf, M, dX, dY, dW, dH, fr, bisLado) {
+    const eW  = fr * (20 / 70);
+    const eL  = fr * 1;
+    const off = fr * 0.20;
+
+    function lPoly(corner) {
+        let pts;
+        if (corner === 'tl') pts = [
+            [dX+off+eL, dY+off], [dX+off, dY+off], [dX+off, dY+off+eL],
+            [dX+off+eW, dY+off+eL], [dX+off+eW, dY+off+eW], [dX+off+eL, dY+off+eW]
+        ];
+        else if (corner === 'tr') pts = [
+            [dX+dW-off-eL, dY+off], [dX+dW-off, dY+off], [dX+dW-off, dY+off+eL],
+            [dX+dW-off-eW, dY+off+eL], [dX+dW-off-eW, dY+off+eW], [dX+dW-off-eL, dY+off+eW]
+        ];
+        else if (corner === 'bl') pts = [
+            [dX+off+eL, dY+dH-off], [dX+off, dY+dH-off], [dX+off, dY+dH-off-eL],
+            [dX+off+eW, dY+dH-off-eL], [dX+off+eW, dY+dH-off-eW], [dX+off+eL, dY+dH-off-eW]
+        ];
+        else pts = [
+            [dX+dW-off-eL, dY+dH-off], [dX+dW-off, dY+dH-off], [dX+dW-off, dY+dH-off-eL],
+            [dX+dW-off-eW, dY+dH-off-eL], [dX+dW-off-eW, dY+dH-off-eW], [dX+dW-off-eL, dY+dH-off-eW]
+        ];
+        // Dibujar polígono cerrado con pdf.lines (deltas desde el primer punto)
+        const start = pts[0];
+        const deltas = [];
+        for (let i = 1; i < pts.length; i++) {
+            deltas.push([M.x(pts[i][0]) - M.x(pts[i-1][0]), M.y(pts[i][1]) - M.y(pts[i-1][1])]);
+        }
+        pdf.setFillColor(255, 255, 255);
+        pdf.setDrawColor(17, 17, 17);
+        pdf.setLineWidth(0.4);
+        pdf.lines(deltas, M.x(start[0]), M.y(start[1]), [1, 1], 'FD', true);
+    }
+
+    if (bisLado === 'izquierda') { lPoly('tl'); lPoly('bl'); }
+    else                         { lPoly('tr'); lPoly('br'); }
+}
+
+// Flecha triangular (para cotas). dir: 'up','down','left','right'
+function pdfFlecha(pdf, M, x, y, dir, arw) {
+    const a = M.s(arw);
+    const px = M.x(x), py = M.y(y);
+    let x2, y2, x3, y3;
+    if (dir === 'up')    { x2 = px - a/2; y2 = py + a*1.4; x3 = px + a/2; y3 = py + a*1.4; }
+    else if (dir === 'down') { x2 = px - a/2; y2 = py - a*1.4; x3 = px + a/2; y3 = py - a*1.4; }
+    else if (dir === 'left') { x2 = px + a*1.4; y2 = py - a/2; x3 = px + a*1.4; y3 = py + a/2; }
+    else /* right */         { x2 = px - a*1.4; y2 = py - a/2; x3 = px - a*1.4; y3 = py + a/2; }
+    pdf.setFillColor(...D_DIM);
+    pdf.triangle(px, py, x2, y2, x3, y3, 'F');
+}
+
+// Cota vertical con flechas y texto (equiv. svgDimV)
+function pdfDimV(pdf, M, x, y1, y2, name, value, side, showValue) {
+    const arw = 7, gap = 8;
+    const top = Math.min(y1, y2), bot = Math.max(y1, y2);
+    const midY = (top + bot) / 2, pxH = bot - top;
+    const tx = side === 'left' ? x - gap : x + gap;
+    const align = side === 'left' ? 'right' : 'left';
+
+    pdf.setDrawColor(...D_DIM); pdf.setLineWidth(0.3);
+    pdf.line(M.x(x), M.y(top), M.x(x), M.y(bot));
+    pdfFlecha(pdf, M, x, top, 'up', arw);
+    pdfFlecha(pdf, M, x, bot, 'down', arw);
+
+    if (pxH >= 14) {
+        pdf.setTextColor(...D_DIM);
+        pdf.setFontSize(7);
+        if (showValue) {
+            if (name) {
+                pdf.setFont('helvetica', 'bold');
+                pdf.text(String(name), M.x(tx), M.y(midY - 6), { align, baseline: 'middle' });
+                pdf.setFont('helvetica', 'normal');
+                pdf.text(String(value), M.x(tx), M.y(midY + 7), { align, baseline: 'middle' });
+            } else {
+                pdf.setFont('helvetica', 'bold');
+                pdf.text(String(value), M.x(tx), M.y(midY), { align, baseline: 'middle' });
+            }
+        } else {
+            pdf.setFont('helvetica', 'bold');
+            pdf.text(String(name), M.x(tx), M.y(midY), { align, baseline: 'middle' });
+        }
+    }
+}
+
+// Cota horizontal con flechas y texto (equiv. svgDimH)
+function pdfDimH(pdf, M, x1, x2, y, name, value, above) {
+    const arw = 7;
+    const midX = (x1 + x2) / 2;
+    const ty = above ? y - 12 : y + 14;
+
+    pdf.setDrawColor(...D_DIM); pdf.setLineWidth(0.3);
+    pdf.line(M.x(x1), M.y(y), M.x(x2), M.y(y));
+    pdfFlecha(pdf, M, x1, y, 'left', arw);
+    pdfFlecha(pdf, M, x2, y, 'right', arw);
+
+    pdf.setTextColor(...D_DIM);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(7);
+    pdf.text(String(value), M.x(midX), M.y(ty), { align: 'center', baseline: 'middle' });
+}
+
+// ── VISTA TRASERA (nativa) ──
+function pdfDibujarTrasera(pdf, x0, y0, w, h) {
+    const { alturaReal, anchoReal, bisagrasTotal } = state;
+    const { mano } = fabState;
+    const VW = 400, VH = 560;
+    const mL = 60, mR = 60, mTop = 65, mBot = 65;
+    const availW = VW - mL - mR, availH = VH - mTop - mBot;
+    const scale = Math.min(availW / anchoReal, availH / alturaReal);
+    const dW = anchoReal * scale, dH = alturaReal * scale;
+    const dX = mL + (availW - dW) / 2, dY = mTop + (availH - dH) / 2;
+    const fr = 20, bisR = 8;
+
+    const M = crearMapa(x0, y0, w, h, VW, VH);
+
+    pdfDoorFrame(pdf, M, dX, dY, dW, dH, fr, state.vidrioMontado);
+
+    if (mano && !state.sinMecanizado) {
+        const bisLado = mano === 'izquierda' ? 'derecha' : 'izquierda';
+        const esEsquina = CONFIG.modelos[state.modelo]?.tipobisagra === 'HAVA';
+
+        if (esEsquina) {
+            pdfBisagraEsquina(pdf, M, dX, dY, dW, dH, fr, bisLado);
+        } else {
+            const bisX  = bisLado === 'izquierda' ? dX + fr/2 : dX + dW - fr/2;
+            const bisPx = getBisagraPxPositions(dY, dH);
+            const dimX  = bisLado === 'izquierda' ? dX - 28 : dX + dW + 28;
+            const dimSide = bisLado === 'izquierda' ? 'left' : 'right';
+
+            pdf.setFillColor(255, 255, 255);
+            pdf.setDrawColor(...D_FRAME);
+            pdf.setLineWidth(0.35);
+            bisPx.forEach(py => pdf.circle(M.x(bisX), M.y(py), M.s(bisR), 'FD'));
+
+            pdfDimV(pdf, M, dimX, dY, bisPx[0], 'B1', 0, dimSide, false);
+            for (let i = 0; i < bisPx.length - 1; i++) {
+                pdfDimV(pdf, M, dimX, bisPx[i], bisPx[i+1], `C${i+1}`, 0, dimSide, false);
+            }
+            pdfDimV(pdf, M, dimX, bisPx[bisPx.length-1], dY + dH, 'B2', 0, dimSide, false);
+        }
+    }
+
+    const yX    = mano === 'izquierda' ? dX - 30 : dX + dW + 30;
+    const ySide = mano === 'izquierda' ? 'left' : 'right';
+    pdfDimV(pdf, M, yX, dY, dY + dH, '', alturaReal, ySide, true);
+    pdfDimH(pdf, M, dX, dX + dW, dY + dH + 27, '', anchoReal, false);
+}
+
+// ── VISTA FRONTAL (nativa) ──
+function pdfDibujarFrontal(pdf, x0, y0, w, h) {
+    const { alturaReal, anchoReal } = state;
+    const VW = 400, VH = 560;
+    const mL = 60, mR = 60, mTop = 65, mBot = 65;
+    const availW = VW - mL - mR, availH = VH - mTop - mBot;
+    const scale = Math.min(availW / anchoReal, availH / alturaReal);
+    const dW = anchoReal * scale, dH = alturaReal * scale;
+    const dX = mL + (availW - dW) / 2, dY = mTop + (availH - dH) / 2;
+    const fr = 20;
+    const lado = getTiradorLado();
+    const TL = 126 * scale, TG = 9;
+
+    const M = crearMapa(x0, y0, w, h, VW, VH);
+
+    pdfDoorFrame(pdf, M, dX, dY, dW, dH, fr, state.vidrioMontado);
+
+    if (lado && fabState.tiradorZ) {
+        let tx, ty, tw, th;
+        if (lado === 'derecha') {
+            const yc = dY + (alturaReal - fabState.tiradorZ) * scale;
+            tx = dX + dW - TG/2; ty = yc - TL/2; tw = TG; th = TL;
+            pdfDimV(pdf, M, dX + dW + TG/2 + 22, dY + dH, yc, '', fabState.tiradorZ, 'right', true);
+        } else if (lado === 'izquierda') {
+            const yc = dY + (alturaReal - fabState.tiradorZ) * scale;
+            tx = dX - TG/2; ty = yc - TL/2; tw = TG; th = TL;
+            pdfDimV(pdf, M, dX - TG/2 - 22, dY + dH, yc, '', fabState.tiradorZ, 'left', true);
+        } else if (lado === 'arriba') {
+            const xc = dX + fabState.tiradorZ * scale;
+            tx = xc - TL/2; ty = dY - TG/2; tw = TL; th = TG;
+            pdfDimH(pdf, M, dX, xc, dY - TG/2 - 22, 'Z', fabState.tiradorZ, true);
+        } else if (lado === 'abajo') {
+            const xc = dX + fabState.tiradorZ * scale;
+            tx = xc - TL/2; ty = dY + dH - TG/2; tw = TL; th = TG;
+            pdfDimH(pdf, M, dX, xc, dY + dH + TG/2 + 22, 'Z', fabState.tiradorZ, false);
+        }
+        pdf.setFillColor(...D_TIR);
+        pdf.roundedRect(M.x(tx), M.y(ty), M.s(tw), M.s(th), M.s(2.5), M.s(2.5), 'F');
+    }
 }
 
 // ── CARGAR IMAGEN EXTERNA COMO DATAURL ───────────────
-// Devuelve { dataUrl, naturalWidth, naturalHeight } o null
-function cargarImagenComoData(url) {
+// Devuelve { dataUrl, naturalWidth, naturalHeight } o null.
+// Redimensiona el canvas al tamaño REAL de impresión (maxWmm × maxHmm a dpi dados)
+// para no incrustar la resolución completa del origen. 'formato' controla la
+// compresión: 'JPEG' (fotos, mucho más ligero) o 'PNG' (logos/transparencia).
+function cargarImagenComoData(url, maxWmm = 40, maxHmm = 40, formato = 'JPEG', dpi = 150) {
     return new Promise((resolve) => {
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.onload = () => {
+            // Píxeles máximos según tamaño físico en el PDF (mm → pulgadas → px)
+            const pxPorMm = dpi / 25.4;
+            const maxPxW = Math.round(maxWmm * pxPorMm);
+            const maxPxH = Math.round(maxHmm * pxPorMm);
+            // Escalar hacia abajo manteniendo proporción; nunca ampliar
+            const ratio = Math.min(maxPxW / img.naturalWidth, maxPxH / img.naturalHeight, 1);
+            const w = Math.max(1, Math.round(img.naturalWidth  * ratio));
+            const h = Math.max(1, Math.round(img.naturalHeight * ratio));
+
             const canvas = document.createElement('canvas');
-            canvas.width = img.naturalWidth;
-            canvas.height = img.naturalHeight;
+            canvas.width = w;
+            canvas.height = h;
             const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0);
+            // Fondo blanco para JPEG (no soporta transparencia)
+            if (formato === 'JPEG') { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); }
+            ctx.drawImage(img, 0, 0, w, h);
             try {
-                resolve({
-                    dataUrl: canvas.toDataURL('image/png'),
-                    naturalWidth: img.naturalWidth,
-                    naturalHeight: img.naturalHeight
-                });
+                const dataUrl = formato === 'JPEG'
+                    ? canvas.toDataURL('image/jpeg', 0.82)
+                    : canvas.toDataURL('image/png');
+                resolve({ dataUrl, naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight });
             } catch { resolve(null); }
         };
         img.onerror = () => resolve(null);
@@ -150,7 +372,7 @@ async function generarPDFVitrinas(pedido, cliente) {
 
         // Logo Adinor (versión negra del ecosistema)
         const logoUrl = 'https://jdurba.github.io/General/img/LOGO_2025_Negro.png';
-        const logoData = await cargarImagenComoData(logoUrl);
+        const logoData = await cargarImagenComoData(logoUrl, 34, 13, 'PNG');
         if (logoData) {
             const logoFit = fitImageInBox(logoData.naturalWidth, logoData.naturalHeight, 34, 13);
             pdf.addImage(logoData.dataUrl, 'PNG', mL + logoFit.offsetX, 8 + logoFit.offsetY, logoFit.w, logoFit.h);
@@ -221,12 +443,12 @@ async function generarPDFVitrinas(pedido, cliente) {
         // ── PERFIL + ACABADO (texto) ──
         // Intentar cargar imagen del perfil
         const perfilUrl = `https://raw.githubusercontent.com/Jdurba/Vitrinas/main/Imagenes/${m?.imagen || state.modelo}_cotas.jpg`;
-        const perfilImg = await cargarImagenComoData(perfilUrl);
+        const perfilImg = await cargarImagenComoData(perfilUrl, 52, 26, 'JPEG');
 
         const imgBoxW = 52, imgBoxH = 26;
         if (perfilImg) {
             const fit = fitImageInBox(perfilImg.naturalWidth, perfilImg.naturalHeight, imgBoxW, imgBoxH);
-            pdf.addImage(perfilImg.dataUrl, 'PNG', mL + fit.offsetX, y + fit.offsetY, fit.w, fit.h);
+            pdf.addImage(perfilImg.dataUrl, 'JPEG', mL + fit.offsetX, y + fit.offsetY, fit.w, fit.h);
         } else {
             pdf.setDrawColor(200); pdf.setFillColor(245, 245, 245);
             pdf.rect(mL, y, imgBoxW, imgBoxH, 'FD');
@@ -237,26 +459,45 @@ async function generarPDFVitrinas(pedido, cliente) {
         const datosX = mL + imgBoxW + 8;
         pdf.setFontSize(10);
         pdf.setTextColor(...AZUL);
+
+        // Cursor Y incremental: cada línea avanza 6 mm. Así las líneas
+        // opcionales (especiales) se insertan sin descuadrar las siguientes.
+        let lineY = y + 6;
+        const LH = 6;
+
         pdf.setFont('helvetica', 'bold');
-        pdf.text(`Perfil: ${state.modelo} — ${m?.nombre || ''}`, datosX, y + 6);
+        pdf.text(`Perfil: ${state.modelo} — ${m?.nombre || ''}`, datosX, lineY);
+        lineY += LH;
+
         pdf.setFont('helvetica', 'normal');
-        pdf.text(`Acabado: ${a?.nombre || '—'}`, datosX, y + 12);
+        pdf.text(`Acabado: ${a?.nombre || '—'}`, datosX, lineY);
+        lineY += LH;
+
+        if (state.acabado === 'ESP' && state.acabadoEspecial) {
+            pdf.text(`Acabado especial: ${state.acabadoEspecial}`, datosX, lineY);
+            lineY += LH;
+        }
 
         let vidrioTexto = 'No';
         if (tieneVidrio) {
             vidrioTexto = 'Sí';
             if (state.colorVidrio) vidrioTexto += ` — ${formatearColorVidrio(state.colorVidrio)}`;
         }
-        pdf.text(`Vidrio: ${vidrioTexto}`, datosX, y + 18);
+        pdf.text(`Vidrio: ${vidrioTexto}`, datosX, lineY);
+        lineY += LH;
 
-        // Medidas del vidrio real (alto × ancho), como línea suelta (no tabla)
-        if (tieneVidrio) {
-            pdf.setFont('helvetica', 'normal');
-            pdf.setTextColor(...AZUL);
-            pdf.text(`Medidas vidrio: ${vidrioAltura} × ${vidrioAncho} mm`, datosX, y + 24);
+        if (state.colorVidrio === 'especial' && state.vidrioEspecial) {
+            pdf.text(`Vidrio especial: ${state.vidrioEspecial}`, datosX, lineY);
+            lineY += LH;
         }
 
-        y += imgBoxH + 6;
+        // Medidas del vidrio real (alto × ancho): SIEMPRE se muestran,
+        // el taller las necesita aunque el vidrio no vaya montado.
+        pdf.text(`Medidas vidrio: ${vidrioAltura} × ${vidrioAncho} mm`, datosX, lineY);
+        lineY += LH;
+
+        // Avanzar bajo lo más alto: caja de imagen o bloque de texto.
+        y = Math.max(y + imgBoxH, lineY - LH) + 6;
 
         // ── LÍNEA SEPARADORA ──
         pdf.setDrawColor(...AZUL); pdf.setLineWidth(0.3);
@@ -370,7 +611,7 @@ async function generarPDFVitrinas(pedido, cliente) {
 
             // Imagen tirador
             const tirador = CONFIG.tiradores[state.tiradorTipo];
-            const tiradorImg = tirador ? await cargarImagenComoData(tirador.imagen) : null;
+            const tiradorImg = tirador ? await cargarImagenComoData(tirador.imagen, 36, 17, 'JPEG') : null;
 
             const tBoxW = 36, tBoxH = 17;
             if (tiradorImg) {
@@ -408,37 +649,28 @@ async function generarPDFVitrinas(pedido, cliente) {
         }
 
         // ── COLUMNA DERECHA: cada vista ocupa su bloque completo ──
-        const svgTrasImg  = await svgToImage('fabSvgTrasera', 400, 560);
-        const svgFrontImg = await svgToImage('fabSvgFrontal', 400, 560);
-
+        // Dibujo VECTORIAL NATIVO (primitivas jsPDF) → PDF ligero y nítido.
         const CAP = 4;              // hueco para el caption bajo cada dibujo
         const GAP = 3;              // margen interno del bloque
-        const ratio = 560 / 400;    // alto/ancho del PNG generado
+        const ratio = 560 / 400;    // alto/ancho del dibujo (VH/VW)
 
-        // Cada imagen ocupa la altura de su bloque (menos caption), anclada arriba
         const altoTrasDisp  = bloqueAlto - CAP - GAP;
         const altoFrontDisp = bloqueAlto - CAP - GAP;
 
-        function dibujarVista(img, yTop, altoDisp, caption) {
+        function dibujarVista(dibujarFn, yTop, altoDisp, caption) {
             let h = altoDisp;
             let w = h / ratio;
             if (w > colDerW) { w = colDerW; h = w * ratio; }   // limitar por ancho
             const x = colDerX + (colDerW - w) / 2;             // centrar horizontal
 
-            if (img) {
-                pdf.addImage(img, 'PNG', x, yTop, w, h);
-            } else {
-                pdf.setDrawColor(200); pdf.setFillColor(252, 252, 252);
-                pdf.rect(x, yTop, w, h, 'FD');
-                pdf.setFontSize(8); pdf.setTextColor(170);
-                pdf.text(caption, x + w / 2, yTop + h / 2, { align: 'center' });
-            }
+            dibujarFn(pdf, x, yTop, w, h);
+
             pdf.setFontSize(6.5); pdf.setTextColor(150); pdf.setFont('helvetica', 'normal');
             pdf.text(caption, colDerX + colDerW / 2, yTop + h + CAP - 1, { align: 'center' });
         }
 
-        dibujarVista(svgTrasImg, bloque2Top, altoTrasDisp, 'Vista trasera — bisagras');
-        dibujarVista(svgFrontImg, bloque3Top, altoFrontDisp, tieneTirador ? 'Vista frontal — tirador' : 'Vista frontal');
+        dibujarVista(pdfDibujarTrasera, bloque2Top, altoTrasDisp, 'Vista trasera — bisagras');
+        dibujarVista(pdfDibujarFrontal, bloque3Top, altoFrontDisp, tieneTirador ? 'Vista frontal — tirador' : 'Vista frontal');
 
         // ── VERSIÓN (traza mínima, sin línea de pie para ganar espacio) ──
         if (window.VERSION_APP) {
