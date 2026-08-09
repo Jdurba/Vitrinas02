@@ -810,6 +810,14 @@
             gap: 20px;
         }
 
+        /* Fila de vidrio: combo (izq) siempre a mitad, campo especial (der) aparece/desaparece sin mover el layout */
+        .vidrio-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            align-items: end;
+        }
+
         @media (max-width: 600px) {
             .medidas-grid {
                 grid-template-columns: 80px 1fr 1fr 1fr;
@@ -821,6 +829,10 @@
             }
             
             .form-row {
+                grid-template-columns: 1fr;
+            }
+
+            .vidrio-row {
                 grid-template-columns: 1fr;
             }
         }
@@ -1607,8 +1619,8 @@
         .informe-param-fila.cols-2 { grid-template-columns: 1fr 1fr; }
         .informe-param-fila.cols-3 { grid-template-columns: 1fr 1fr 1fr; margin-top: 22px; }
         .campo-informe {
-            display: flex; align-items: baseline; justify-content: space-between;
-            gap: 12px; padding: 4px 2px;
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; padding: 1.5px 2px; line-height: 1.15;
             border-bottom: 1px dotted #bbb;
         }
         .campo-informe label {
@@ -1970,6 +1982,13 @@
                         </div>
 
                     </div>
+
+                    <!-- Campo texto para acabado especial (solo visible si ESP seleccionado) -->
+                    <div class="form-group especial-group" id="acabadoEspecialGroup" style="display: none; margin-top: 15px;">
+                        <label for="acabadoEspecial">Especifica el acabado especial</label>
+                        <input type="text" id="acabadoEspecial" name="acabadoEspecial"
+                               placeholder="Ej.: RAL 7016 texturado, anodizado oro..." autocomplete="off" maxlength="80">
+                    </div>
                 </div>
 
                 <!-- Sección 3: Dimensiones y cantidades -->
@@ -2105,18 +2124,25 @@
                             </div>
                         </div>
 
-                        <!-- Combo de color de vidrio -->
-                        <div class="form-group full-width" id="colorVidrioGroup">
-                            <label for="colorVidrio" id="colorVidrioLabel" class="disabled">Color del Vidrio</label>
-                            <select id="colorVidrio" name="colorVidrio" disabled>
-                                <option value="">Selecciona color...</option>
-                                <option value="transparente">Transparente</option>
-                                <option value="mate">Mate</option>
-                                <option value="bronce">Bronce</option>
-                                <option value="gris">Gris</option>
-                                <option value="grisoscuro">Gris oscuro</option>
-                                <option value="especial">Especial</option>
-                            </select>
+                        <!-- Combo de color de vidrio (mitad) + campo especial (mitad derecha) -->
+                        <div class="vidrio-row" id="colorVidrioGroup">
+                            <div class="form-group">
+                                <label for="colorVidrio" id="colorVidrioLabel" class="disabled">Color del Vidrio</label>
+                                <select id="colorVidrio" name="colorVidrio" disabled>
+                                    <option value="">Selecciona color...</option>
+                                    <option value="transparente">Transparente</option>
+                                    <option value="mate">Mate</option>
+                                    <option value="bronce">Bronce</option>
+                                    <option value="gris">Gris</option>
+                                    <option value="grisoscuro">Gris oscuro</option>
+                                    <option value="especial">Especial</option>
+                                </select>
+                            </div>
+                            <div class="form-group especial-group" id="vidrioEspecialGroup" style="display: none;">
+                                <label for="vidrioEspecial">Especifica el vidrio especial</label>
+                                <input type="text" id="vidrioEspecial" name="vidrioEspecial"
+                                       placeholder="Ej.: templado 6 mm serigrafiado..." autocomplete="off" maxlength="80">
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2209,12 +2235,13 @@
 
 
 <script src="js/jspdf_umd_min.js"></script>
+<script src="js/autotable_min.js"></script>
 <script src="https://jdurba.github.io/General/html2canvas.min.js"></script>
 <script src="js/config.js?v=3" defer></script>
-<script src="js/configurador.js?v=5" defer></script>
-<script src="js/fabricacion.js?v=4" defer></script>
-<script src="js/pdfVitrinas.js?v=3" defer></script>
-<script src="js/presupuesto.js?v=6" defer></script>
+<script src="js/configurador.js?v=6" defer></script>
+<script src="js/fabricacion.js?v=5" defer></script>
+<script src="js/pdfVitrinas.js?v=7" defer></script>
+<script src="js/presupuesto.js?v=11" defer></script>
 
 
 <!-- ==========================================
@@ -2306,17 +2333,18 @@
             <thead>
                 <tr>
                     <th class="copia" style="width:6%" data-html2canvas-ignore></th>
-                    <th style="width:20%">Código</th>
+                    <th style="width:16%">Código</th>
                     <th>Descripción</th>
-                    <th class="num" style="width:11%">Cant.</th>
-                    <th class="num" style="width:16%">Precio</th>
+                    <th class="num" style="width:8%">Cant.</th>
+                    <th class="num" style="width:14%">P. Unit.</th>
+                    <th class="num" style="width:14%">Subtotal</th>
                 </tr>
             </thead>
             <tbody id="presuArticulos"></tbody>
             <tfoot>
                 <tr>
                     <td class="copia" data-html2canvas-ignore></td>
-                    <td colspan="3" class="num">TOTAL</td>
+                    <td colspan="4" class="num">TOTAL</td>
                     <td class="num" id="presuTotal">—</td>
                 </tr>
             </tfoot>
