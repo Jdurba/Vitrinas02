@@ -25,12 +25,12 @@
 
     <style>
         :root {
-            --color-primary: #2c3e50;
+            --color-primary: #2D3A4B;
             --color-secondary: #3498db;
             --color-accent: #e74c3c;
             --color-bg: #f5f6fa;
             --color-card: #ffffff;
-            --color-text: #2c3e50;
+            --color-text: #2D3A4B;
             --color-text-light: #7f8c8d;
             --border-radius: 8px;
             --shadow: 0 2px 10px rgba(0,0,0,0.1);
@@ -43,6 +43,12 @@
             box-sizing: border-box;
         }
 
+        /* Tipografía: se usa la del sistema en toda la app. Antes había reglas
+           que pedían 'Jost' en fabricación e informe, pero la fuente no se
+           cargaba en ningún sitio (ni aquí ni en ConfigTodos.js), así que nunca
+           llegó a verse. Se retiraron. Para recuperarla haría falta el <link>
+           de Google Fonts, preferiblemente en ConfigTodos.js para todo el
+           ecosistema, ya que su modal también la pide. */
         body {
             font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
             background: var(--color-bg);
@@ -286,13 +292,7 @@
         }
 
         /* Formulario de Dimensiones */
-        .dimensiones-form {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-        }
-
-        .form-group {
+                .form-group {
             display: flex;
             flex-direction: column;
         }
@@ -330,13 +330,7 @@
             border-color: var(--color-secondary);
         }
 
-        .input-hint {
-            font-size: 0.8rem;
-            color: var(--color-text-light);
-            margin-top: 5px;
-        }
-
-        /* Panel de Resumen */
+                /* Panel de Resumen */
         .resumen-panel {
             position: sticky;
             top: 92px;
@@ -377,32 +371,7 @@
             color: var(--color-primary);
         }
 
-        .resumen-value.highlight {
-            color: var(--color-secondary);
-            font-size: 1.1rem;
-        }
-
-        .precio-total {
-            background: var(--color-primary);
-            color: white;
-            padding: 20px;
-            border-radius: var(--border-radius);
-            margin-top: 20px;
-            text-align: center;
-        }
-
-        .precio-total .label {
-            font-size: 0.9rem;
-            opacity: 0.9;
-        }
-
-        .precio-total .value {
-            font-size: 2rem;
-            font-weight: 700;
-            margin-top: 5px;
-        }
-
-        .btn-calcular {
+                                        .btn-calcular {
             width: 100%;
             padding: 15px;
             background: #4a5b7a;
@@ -449,28 +418,8 @@
             border-radius: 4px;
         }
 
-        .vitrina-svg {
-            max-width: 100%;
-            height: auto;
-        }
-
-        /* Estados de validación */
-        .error-message {
-            color: var(--color-accent);
-            font-size: 0.85rem;
-            margin-top: 5px;
-            display: none;
-        }
-
-        .form-group.error input {
-            border-color: var(--color-accent);
-        }
-
-        .form-group.error .error-message {
-            display: block;
-        }
-
-        /* Animaciones */
+                /* Estados de validación */
+                                /* Animaciones */
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
@@ -611,7 +560,7 @@
         }
 
         .medidas-header.real-fabricar {
-            color: #2c3e50;
+            color: #2D3A4B;
         }
 
         .medidas-label {
@@ -648,15 +597,7 @@
             opacity: 0.6;
         }
 
-        .bisagras-advertencia {
-            display: block;
-            font-size: 0.8rem;
-            color: var(--color-accent);
-            margin-top: 5px;
-            min-height: 18px;
-        }
-
-        .bisagras-widget {
+                .bisagras-widget {
             display: flex;
             align-items: center;
             gap: 10px;
@@ -689,7 +630,7 @@
         .adjuntar-label {
             font-size: 0.9rem;
             font-weight: 600;
-            color: var(--color-text, #2c3e50);
+            color: var(--color-text, #2D3A4B);
         }
         .sino-toggle {
             display: inline-flex;
@@ -780,16 +721,7 @@
             font-size: 1rem;
         }
 
-        .bisagras-extra-precio {
-            display: block;
-            font-size: 0.8rem;
-            color: var(--color-secondary);
-            font-weight: 600;
-            margin-top: 4px;
-            min-height: 16px;
-        }
-
-        .bisagras-mecanizado-precio {
+                .bisagras-mecanizado-precio {
             display: block;
             font-size: 0.8rem;
             color: var(--color-secondary);
@@ -902,14 +834,7 @@
             gap: 2px;
         }
 
-        .bisagras-extra {
-            font-size: 0.75rem;
-            color: var(--color-accent);
-            font-weight: 500;
-            margin-top: 2px;
-        }
-
-        .btn-reset {
+                .btn-reset {
             width: 100%;
             padding: 12px;
             margin-top: 10px;
@@ -927,12 +852,7 @@
             color: var(--color-accent);
         }
 
-        .resumen-item.incompleto .resumen-value {
-            color: #ccc;
-            font-style: italic;
-        }
-
-        .resumen-item.completo .resumen-value {
+                .resumen-item.completo .resumen-value {
             color: var(--color-primary);
         }
 
@@ -963,10 +883,6 @@
             gap: 4px;
         }
 
-        .medidas-input input {
-            width: 100%;
-        }
-
         .medidas-mensaje {
             min-height: 16px;
             font-size: 0.75rem;
@@ -990,6 +906,16 @@
             font-style: italic;
         }
         
+        /* Aviso bajo la casilla de tirador: explica por qué está deshabilitada
+           (perfil sin tirador, o medidas insuficientes). Vacío = oculto. */
+        .tirador-aviso {
+            margin: 4px 0 0 30px;
+            font-size: 0.75rem;
+            line-height: 1.3;
+            color: #f39c12;
+        }
+        .tirador-aviso:empty { display: none; }
+
         /* Selector de Tiradores */
         .tiradores-selector {
             display: none;
@@ -1076,19 +1002,8 @@
             line-height: 1.2;
         }
         
-        .tirador-medidas {
-            font-size: 0.75rem;
-            color: var(--color-text-light);
-            margin-top: 2px;
-        }
-        
-        .tirador-precio {
-            font-size: 0.85rem;
-            color: var(--color-secondary);
-            font-weight: 600;
-            margin-top: 4px;
-        }
-        
+                
+                
         @media (max-width: 600px) {
             .tiradores-grid {
                 grid-template-columns: 1fr;
@@ -1103,7 +1018,6 @@
         #cab-btn.btn-grad {
             min-width: 115px;
             padding: 9px 16px;
-            font-family: 'Jost', sans-serif;
             font-size: 0.85rem;
             letter-spacing: 0.03em;
             color: #fff;
@@ -1154,7 +1068,6 @@
         .fab-topbar .fab-barra-logo { height: 46px; width: auto; }
         .fab-topbar h2 {
             flex: 1;
-            font-family: 'Jost', sans-serif;
             font-size: 1.05rem;
             font-weight: 500;
             letter-spacing: 0.06em;
@@ -1165,7 +1078,6 @@
         .fab-btn-pdf-top {
             min-width: 115px;
             padding: 9px 16px;
-            font-family: 'Jost', sans-serif;
             font-size: 0.85rem;
             letter-spacing: 0.03em;
             color: #fff;
@@ -1304,7 +1216,6 @@
             padding: 3px 9px;
             cursor: pointer;
             transition: all 0.2s;
-            font-family: 'Jost', sans-serif;
         }
         .fab-bis-zoom:hover { background: #ebf5fb; }
         /* Popup zoom imágenes montaje */
@@ -1359,7 +1270,6 @@
             color: white;
             font-weight: 600;
             cursor: pointer;
-            font-family: 'Jost', sans-serif;
         }
         .fab-ficha-fila {
             display: flex;
@@ -1527,13 +1437,12 @@
         #presu-barra .presu-barra-titulo {
             flex: 1;
             text-align: center;
-            font-family: 'Jost', sans-serif;
             font-size: 1.05rem; font-weight: 500;
             color: #fff; letter-spacing: 0.06em;
         }
         #presu-barra button {
             min-width: 115px; padding: 9px 16px;
-            font-family: 'Jost', sans-serif; font-size: 0.85rem;
+            font-size: 0.85rem;
             color: #fff; background: #4a5b7a; border: none; border-radius: 4px;
             cursor: pointer; transition: background 0.2s ease, transform 0.2s ease;
             letter-spacing: 0.03em;
@@ -1556,7 +1465,6 @@
             background: #ffffff;
             box-shadow: 0 3px 16px rgba(0,0,0,0.18);
             color: #222;
-            font-family: 'Jost', sans-serif;
         }
 
         /* Cabecera del informe */
@@ -1565,7 +1473,7 @@
         .informe-header-logo { height: 48px; width: auto; flex-shrink: 0; }
         .informe-header h1 {
             flex: 1; margin: 0; text-align: center;
-            font-family: 'Jost', sans-serif; font-weight: 600;
+            font-weight: 600;
             font-size: 18px; letter-spacing: 0.5px; text-transform: uppercase;
             color: #2D3A4B; line-height: 1.2;
         }
@@ -1615,10 +1523,7 @@
 
         /* Parámetros — etiqueta izq / valor der */
         .informe-params { display: flex; flex-direction: column; gap: 0; padding: 0 4px; }
-        .informe-param-fila { display: grid; gap: 0 clamp(2rem, 6vw, 5rem); }
-        .informe-param-fila.cols-2 { grid-template-columns: 1fr 1fr; }
-        .informe-param-fila.cols-3 { grid-template-columns: 1fr 1fr 1fr; margin-top: 22px; }
-        .campo-informe {
+                                .campo-informe {
             display: flex; align-items: center; justify-content: space-between;
             gap: 12px; padding: 1.5px 2px; line-height: 1.15;
             border-bottom: 1px dotted #bbb;
@@ -1643,20 +1548,44 @@
         .tabla-informe td.cod { font-weight: 600; white-space: nowrap; }
         .tabla-informe th.num, .tabla-informe td.num { text-align: right; }
         .tabla-informe .incluido { color: #999; font-style: italic; }
+
+        /* Insignia "Dto 100%": marca las líneas incluidas en el precio de la
+           vitrina (bisagras KABI/HAVA, tarifa 0). Informativa: el descuento
+           real se aplica en Odoo, no aquí. La genera presupuesto.js. */
+        .tabla-informe .dto-badge {
+            display: inline-block;
+            margin-left: 6px;
+            padding: 1px 6px;
+            border-radius: 10px;
+            background: #e8eef7;
+            color: #2D3A4B;
+            font-size: 0.72rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
         .tabla-informe .obs td { font-style: italic; color: #555; }
-        .tabla-informe th.copia, .tabla-informe td.copia {
-            border: none; background: none; text-align: center; padding: 4px;
+
+        /* Celdas copiables: se resaltan al pasar el ratón; un clic copia. */
+        .tabla-informe td[data-copia] {
+            cursor: pointer; position: relative;
+            transition: background 0.12s ease;
         }
-        .btn-copia {
-            border: 1px solid #b7b8b6; background: #ececeb; border-radius: 4px;
-            cursor: pointer; padding: 3px 7px; font-size: 13px; line-height: 1;
-            transition: background 0.15s ease;
+        .tabla-informe td[data-copia]:hover { background: #dbe7f3; }
+        .tabla-informe td[data-copia]:hover::after {
+            content: '📋'; position: absolute; right: 5px; top: 50%;
+            transform: translateY(-50%); font-size: 10px; opacity: 0.45;
+            pointer-events: none;
         }
-        .btn-copia:hover { background: #d7d8d6; }
-        .btn-copia.ok { background: #cfe6cf; border-color: #93c393; }
+        .tabla-informe td[data-copia].copiada { background: #cfe6cf; }
+        .tabla-informe td[data-copia].copiada::after { content: '✓'; opacity: 0.8; }
+
         .tabla-informe tfoot td {
             border: none; border-top: 2px solid #2D3A4B;
             font-weight: bold; font-size: 14px; padding-top: 12px;
+        }
+        .tabla-informe tfoot td.aviso-copia {
+            text-align: left; font-weight: 400; font-style: italic;
+            font-size: 12.5px; color: #777;
         }
 
         .informe-consultar-motivo {
@@ -1868,7 +1797,7 @@
 
                         <div class="modelo-card" data-modelo="HAVASP">
                             <img src="https://raw.githubusercontent.com/Jdurba/Vitrinas/main/Imagenes/HavaSP_cotas.jpg" 
-                                alt="Modelo HAVA" 
+                                alt="Modelo HAVASP" 
                                 class="modelo-img"
                                 onerror="this.style.display='none'">
                             <div class="modelo-placeholder">HAVA S/P</div>
@@ -2062,7 +1991,6 @@
                                     </div>
                                 </div>
                                 <span class="bisagras-mecanizado-precio" id="bisagrasMecanizadoPrecio"></span>
-                                <span class="bisagras-advertencia" id="bisagrasAdvertencia"></span>
                             </div>
 
                             <div class="form-group">
@@ -2085,6 +2013,7 @@
                                     <span class="checkmark"></span>
                                     Tirador mecanizado
                                 </label>
+                                <p class="tirador-aviso" id="tiradorAviso"></p>
                                 
                                 <!-- Selector de tiradores -->
                                 <div class="tiradores-selector" id="tiradoresSelector">
@@ -2234,12 +2163,12 @@
     </div>
 
 <script src="https://jdurba.github.io/General/jspdf_umd_min.js"></script>
-<script src="js/autotable_min.js"></script>
-<script src="js/config.js?v=3" defer></script>
-<script src="js/configurador.js?v=6" defer></script>
-<script src="js/fabricacion.js?v=5" defer></script>
-<script src="js/pdfVitrinas.js?v=7" defer></script>
-<script src="js/presupuesto.js?v=11" defer></script>
+<script src="js/autotable_min.js?v=1"></script>
+<script src="js/config.js?v=6" defer></script>
+<script src="js/configurador.js?v=9" defer></script>
+<script src="js/fabricacion.js?v=10" defer></script>
+<script src="js/pdfVitrinas.js?v=11" defer></script>
+<script src="js/presupuesto.js?v=16" defer></script>
 
 
 <!-- ==========================================
@@ -2330,7 +2259,6 @@
         <table class="tabla-informe">
             <thead>
                 <tr>
-                    <th class="copia" style="width:6%" data-html2canvas-ignore></th>
                     <th style="width:16%">Código</th>
                     <th>Descripción</th>
                     <th class="num" style="width:8%">Cant.</th>
@@ -2341,8 +2269,8 @@
             <tbody id="presuArticulos"></tbody>
             <tfoot>
                 <tr>
-                    <td class="copia" data-html2canvas-ignore></td>
-                    <td colspan="4" class="num">TOTAL</td>
+                    <td colspan="3" class="aviso-copia">Haz clic en cualquier celda resaltada para copiar su contenido</td>
+                    <td class="num">TOTAL</td>
                     <td class="num" id="presuTotal">—</td>
                 </tr>
             </tfoot>
