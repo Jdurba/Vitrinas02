@@ -4,7 +4,7 @@
 
 // ── DISPARADOR PDF ──────────────────────────
 // Cliente y Nº Pedido se recogen en el formulario (state), no en modal.
-function mostrarModalPDF() {
+function lanzarPDFVitrinas() {
     generarPDFVitrinas(state.numPedido || '', state.cliente || '');
 }
 
@@ -21,7 +21,7 @@ function mostrarModalPDF() {
 // ============================================================
 
 // Colores del dibujo (mismos del SVG, en RGB para jsPDF)
-const D_FRAME = [44, 62, 80];    // #2c3e50
+const D_FRAME = [45, 58, 75];    // #2D3A4B
 const D_DIM   = [26, 26, 26];    // #1a1a1a
 const D_TIR   = [26, 26, 46];    // #1a1a2e
 const D_GLASS = [214, 234, 248]; // #d6eaf8  cristal plano azulado
@@ -149,7 +149,7 @@ function pdfDimV(pdf, M, x, y1, y2, name, value, side, showValue) {
 }
 
 // Cota horizontal con flechas y texto (equiv. svgDimH)
-function pdfDimH(pdf, M, x1, x2, y, name, value, above) {
+function pdfDimH(pdf, M, x1, x2, y, value, above) {
     const arw = 7;
     const midX = (x1 + x2) / 2;
     const ty = above ? y - 12 : y + 14;
@@ -209,7 +209,7 @@ function pdfDibujarTrasera(pdf, x0, y0, w, h) {
     const yX    = mano === 'izquierda' ? dX - 30 : dX + dW + 30;
     const ySide = mano === 'izquierda' ? 'left' : 'right';
     pdfDimV(pdf, M, yX, dY, dY + dH, '', alturaReal, ySide, true);
-    pdfDimH(pdf, M, dX, dX + dW, dY + dH + 27, '', anchoReal, false);
+    pdfDimH(pdf, M, dX, dX + dW, dY + dH + 27, anchoReal, false);
 }
 
 // ── VISTA FRONTAL (nativa) ──
@@ -223,7 +223,10 @@ function pdfDibujarFrontal(pdf, x0, y0, w, h) {
     const dX = mL + (availW - dW) / 2, dY = mTop + (availH - dH) / 2;
     const fr = 20;
     const lado = getTiradorLado();
-    const TL = 126 * scale, TG = 9;
+    // Croquis NO a escala: perfil, bisagras y tirador van en píxeles fijos para
+    // que se lean bien — ver nota en fabricacion.js → generarSVGFrontal.
+    // tiradorLargoPx() vive en fabricacion.js (se carga antes que este fichero).
+    const TL = tiradorLargoPx(lado, dW, dH), TG = 9;
 
     const M = crearMapa(x0, y0, w, h, VW, VH);
 
@@ -242,11 +245,11 @@ function pdfDibujarFrontal(pdf, x0, y0, w, h) {
         } else if (lado === 'arriba') {
             const xc = dX + fabState.tiradorZ * scale;
             tx = xc - TL/2; ty = dY - TG/2; tw = TL; th = TG;
-            pdfDimH(pdf, M, dX, xc, dY - TG/2 - 22, 'Z', fabState.tiradorZ, true);
+            pdfDimH(pdf, M, dX, xc, dY - TG/2 - 22, fabState.tiradorZ, true);
         } else if (lado === 'abajo') {
             const xc = dX + fabState.tiradorZ * scale;
             tx = xc - TL/2; ty = dY + dH - TG/2; tw = TL; th = TG;
-            pdfDimH(pdf, M, dX, xc, dY + dH + TG/2 + 22, 'Z', fabState.tiradorZ, false);
+            pdfDimH(pdf, M, dX, xc, dY + dH + TG/2 + 22, fabState.tiradorZ, false);
         }
         pdf.setFillColor(...D_TIR);
         pdf.roundedRect(M.x(tx), M.y(ty), M.s(tw), M.s(th), M.s(2.5), M.s(2.5), 'F');
@@ -389,7 +392,7 @@ async function generarPDFVitrinas(pedido, cliente) {
         // Centrado en el espacio entre el logo y el margen derecho
         const tituloLeft = mL + 34 + 6;   // fin del logo (ancho 34) + holgura
         const tituloCentro = tituloLeft + (W - mR - tituloLeft) / 2;
-        pdf.text('HOJA DE PREPARACIÓN DE VITRINAS', tituloCentro, 14, { align: 'center' });
+        pdf.text('HOJA DE FABRICACIÓN DE VITRINAS', tituloCentro, 14, { align: 'center' });
 
         // Borde inferior de cabecera (fina y separada del logo)
         pdf.setDrawColor(...AZUL);
@@ -701,11 +704,9 @@ function inicializarPDFVitrinas() {
     const btn = document.getElementById('fabBtnPDF');
     if (!btn) return;
 
-    // Quitar listener previo y poner el nuevo. El estado disabled lo gestiona
+    // Único listener del botón. El estado disabled lo gestiona
     // fabricacion.js (actualizarEstadoPDF) según la captura de bisagras.
-    const clone = btn.cloneNode(true);
-    btn.parentNode.replaceChild(clone, btn);
-    clone.addEventListener('click', mostrarModalPDF);
+    btn.addEventListener('click', lanzarPDFVitrinas);
 }
 
 document.addEventListener('DOMContentLoaded', inicializarPDFVitrinas);

@@ -22,10 +22,7 @@ const state = {
     precioMecExtra: null,   // €/mecanizado bisagra extra (VV.MEC.B), cargado del CSV en init
     bisagrasTotal: 0,
     bisagrasMaxTecnico: 0,
-    bisagrasB1: 100,
-    bisagrasB2: 100,
     bisagrasCalculadas: 0,
-    bisagras: '',
     sinMecanizado: false,
     adjuntarBisagras: null,   // null = sin responder, true = Sí, false = No
     tirador: false,
@@ -38,6 +35,37 @@ const state = {
 
 // Límite duro de fabricación del vidrio (mm)
 const VIDRIO_MAX_ALTO = 2800;
+
+// ==========================================
+// GEOMETRÍA DEL TIRADOR (compartido con fabricacion.js)
+// ==========================================
+// El tirador se acota por su CENTRO (cota Z). Para que no se salga de la
+// puerta, ese centro debe quedar a >= (borde + medio tirador) de los dos
+// extremos. De ahí salen las tres funciones; no hay tablas de medidas.
+
+// Cota Z mínima admisible. La máxima es (dimensión − este valor).
+function tiradorZMin(tipo) {
+    const largo = CONFIG.tiradores[tipo]?.largoMm;
+    if (!largo) return 0;
+    return CONFIG.tirador_borde_minimo + Math.ceil(largo / 2);
+}
+
+// Medida mínima de la puerta en la dirección en que va el tirador.
+function tiradorDimMin(tipo) {
+    const largo = CONFIG.tiradores[tipo]?.largoMm;
+    if (!largo) return 0;
+    return largo + 2 * CONFIG.tirador_borde_minimo;
+}
+
+// Posiciones en que cabe. 'opuesto' va en vertical (manda la altura);
+// 'arriba' y 'abajo' van en horizontal (manda el ancho).
+function tiradorPosicionesValidas(tipo, alturaReal, anchoReal) {
+    const min = tiradorDimMin(tipo);
+    const pos = [];
+    if (alturaReal >= min) pos.push('opuesto');
+    if (anchoReal  >= min) pos.push('arriba', 'abajo');
+    return pos;
+}
 
 // ==========================================
 // ELEMENTOS DOM
@@ -66,8 +94,8 @@ const elementos = {
     bisagrasMenos: document.getElementById('bisagrasMenos'),
     bisagrasmas: document.getElementById('bisagrasmas'),
     bisagrasMecanizadoPrecio: document.getElementById('bisagrasMecanizadoPrecio'),
-    bisagrasAdvertencia: document.getElementById('bisagrasAdvertencia'),
     tirador: document.getElementById('tirador'),
+    tiradorAviso: document.getElementById('tiradorAviso'),
     tiradoresSelector: document.getElementById('tiradoresSelector'),
     tiradoresCards: document.querySelectorAll('.tirador-card'),
     vidrioMontado: document.getElementById('vidrioMontado'),
@@ -96,11 +124,25 @@ const elementos = {
 async function init() {
     console.log('Inicializando aplicación...');
 
-    // Nombres de acabado desde CONFIG (única fuente de verdad; el texto del HTML es solo fallback)
+    // Textos de modelo, acabado y tirador desde CONFIG (única fuente de verdad;
+    // el texto escrito en el HTML es solo fallback si el JS no llega a ejecutarse).
+    // Evita que las tarjetas y el resumen lateral muestren nombres distintos.
+    elementos.modelos.forEach(card => {
+        const cfg = CONFIG.modelos[card.dataset.modelo];
+        const descEl = card.querySelector('.modelo-desc');
+        if (cfg && descEl) descEl.textContent = cfg.nombre;
+    });
+
     elementos.acabados.forEach(item => {
         const cfg = CONFIG.acabados[item.dataset.acabado];
         const nombreEl = item.querySelector('.acabado-nombre');
         if (cfg && nombreEl) nombreEl.textContent = cfg.nombre;
+    });
+
+    elementos.tiradoresCards.forEach(card => {
+        const cfg = CONFIG.tiradores[card.dataset.tirador];
+        const nombreEl = card.querySelector('.tirador-nombre');
+        if (cfg && nombreEl) nombreEl.textContent = cfg.medidas;
     });
 
     elementos.modelos.forEach(card => {
@@ -283,10 +325,33 @@ function filtrarAcabadosPorModelo() {
 // ==========================================
 function actualizarDisponibilidadTirador() {
     const modeloConfig = CONFIG.modelos[state.modelo];
-    const bloqueado = !!modeloConfig?.sinTirador;
 
     const tiradorLabel = elementos.tirador?.closest('label');
     if (!tiradorLabel) return;
+
+    // Filtrado por perfil (tiradoresValidos) ∩ acabado (tirador.acabados) ∩ medidas.
+    // El tirador hereda el acabado del perfil → solo aparece si lo soporta.
+    // Por medidas solo se filtra cuando ya están las dos cotas: mientras el
+    // usuario no las haya puesto, no se le esconde nada.
+    const validosModelo = modeloConfig?.tiradoresValidos || [];
+    const hayMedidas = state.alturaReal > 0 && state.anchoReal > 0;
+
+    const cabe = tipo => !hayMedidas ||
+        tiradorPosicionesValidas(tipo, state.alturaReal, state.anchoReal).length > 0;
+
+    const esValido = tipo => {
+        if (!validosModelo.includes(tipo)) return false;
+        const acabadosTir = CONFIG.tiradores[tipo]?.acabados;
+        if (state.acabado && acabadosTir && !acabadosTir.includes(state.acabado)) return false;
+        return cabe(tipo);
+    };
+
+    // Dos motivos distintos de bloqueo de la casilla: el perfil no admite
+    // tirador, o lo admite pero no cabe ninguno en estas medidas.
+    const sinTirador   = !!modeloConfig?.sinTirador;
+    const ningunoCabe  = !sinTirador && validosModelo.length > 0 &&
+                         !validosModelo.some(esValido);
+    const bloqueado    = sinTirador || ningunoCabe;
 
     if (bloqueado) {
         tiradorLabel.classList.add('disabled');
@@ -300,45 +365,56 @@ function actualizarDisponibilidadTirador() {
             if (elementos.tiradoresSelector) {
                 elementos.tiradoresSelector.classList.remove('visible');
             }
-            if (typeof aviso === 'function') {
-                aviso('Este perfil no admite tirador mecanizado.\nSe ha eliminado el tirador de la configuración.');
-            }
+            aviso(sinTirador
+                ? 'Este perfil no admite tirador mecanizado.\nSe ha eliminado el tirador de la configuración.'
+                : `Ningún tirador cabe en ${state.alturaReal} × ${state.anchoReal} mm.\n` +
+                  `Se necesitan al menos ${minCabida(validosModelo)} mm de alto o de ancho.\n` +
+                  'Se ha eliminado el tirador de la configuración.');
         }
+        const motivo = sinTirador
+            ? 'Este perfil no admite tirador mecanizado.'
+            : `Ningún tirador cabe en ${state.alturaReal} × ${state.anchoReal} mm: ` +
+              `se necesitan al menos ${minCabida(validosModelo)} mm de alto o de ancho.`;
+        tiradorLabel.title = motivo;
+        if (elementos.tiradorAviso) elementos.tiradorAviso.textContent = motivo;
         return;
     }
+    tiradorLabel.title = '';
+    if (elementos.tiradorAviso) elementos.tiradorAviso.textContent = '';
 
     tiradorLabel.classList.remove('disabled');
     elementos.tirador.disabled = false;
-
-    // Filtrado por perfil (tiradoresValidos) ∩ acabado (tirador.acabados).
-    // El tirador hereda el acabado del perfil → solo aparece si lo soporta.
-    const validosModelo = modeloConfig?.tiradoresValidos || [];
-    const esValido = tipo => {
-        if (!validosModelo.includes(tipo)) return false;
-        const acabadosTir = CONFIG.tiradores[tipo]?.acabados;
-        if (!state.acabado || !acabadosTir) return true;   // sin acabado aún: no filtrar por acabado
-        return acabadosTir.includes(state.acabado);
-    };
 
     elementos.tiradoresCards.forEach(card => {
         const tipo = card.dataset.tirador;
         const disponible = esValido(tipo);
         card.style.opacity = disponible ? '1' : '0.3';
         card.style.pointerEvents = disponible ? 'auto' : 'none';
-        card.title = disponible ? '' : 'No disponible para este perfil/acabado';
+        card.title = disponible ? ''
+            : (validosModelo.includes(tipo) && !cabe(tipo)
+                ? `No cabe: necesita ${tiradorDimMin(tipo)} mm de alto o de ancho`
+                : 'No disponible para este perfil/acabado');
     });
 
     // Si el tirador seleccionado dejó de ser válido: avisar y anular selección
     // (sin tocar el check "sin tirador"; Siguiente queda inhabilitado por tiradorValido).
     if (state.tiradorTipo && !esValido(state.tiradorTipo)) {
+        const anterior = state.tiradorTipo;
         state.tiradorTipo = null;
         elementos.tiradoresCards.forEach(c => c.classList.remove('selected'));
-        if (typeof aviso === 'function') {
-            aviso('El tirador seleccionado no está disponible para este perfil/acabado.\nSelecciona otro entre los disponibles.');
-        }
+        aviso(cabe(anterior)
+            ? 'El tirador seleccionado no está disponible para este perfil/acabado.\nSelecciona otro entre los disponibles.'
+            : `El tirador seleccionado no cabe en ${state.alturaReal} × ${state.anchoReal} mm.\n` +
+              `Necesita ${tiradorDimMin(anterior)} mm de alto o de ancho.\nSelecciona otro entre los disponibles.`);
         actualizarResumen();
         validarFormulario();
     }
+}
+
+// Menor medida que haría posible algún tirador de los válidos del perfil.
+function minCabida(validosModelo) {
+    const mins = validosModelo.map(tiradorDimMin).filter(Boolean);
+    return mins.length ? Math.min(...mins) : 0;
 }
 
 // ==========================================
@@ -415,6 +491,10 @@ function calcularMedida(tipo, campo) {
         }
     }
 
+    // Las medidas condicionan qué tiradores caben y en qué posición,
+    // así que hay que revalidar la disponibilidad en cada cambio de cota.
+    actualizarDisponibilidadTirador();
+
     actualizarResumen();
     validarFormulario();
 }
@@ -431,7 +511,7 @@ function calcularVidrio() {
 
 // Aviso modal si la altura queda bloqueada por vidrio > máximo
 function avisarSiBloqueoVidrio(validacion) {
-    if (validacion.motivoVidrio && typeof aviso === 'function') {
+    if (validacion.motivoVidrio) {
         aviso(`El vidrio resultante supera el máximo fabricable de ${VIDRIO_MAX_ALTO} mm de alto.\nNo es posible fabricar esta vitrina.`);
     }
 }
@@ -536,7 +616,6 @@ function calcularBisagrasAutomaticas() {
         state.bisagrasMaxTecnico = modeloConfig.bisagras_fijas;
         state.bisagrasCalculadas = modeloConfig.bisagras_fijas;
         state.bisagrasTotal      = modeloConfig.bisagras_fijas;
-        state.bisagras           = String(modeloConfig.bisagras_fijas);
         if (!state.sinMecanizado) renderWidgetBisagras(true);
         return;
     }
@@ -554,7 +633,6 @@ function calcularBisagrasAutomaticas() {
         state.bisagrasMaxTecnico = nominal;
         state.bisagrasTotal      = nominal;
         state.bisagrasCalculadas = nominal;
-        state.bisagras           = String(nominal);
         return;
     }
 
@@ -574,7 +652,6 @@ function calcularBisagrasAutomaticas() {
     state.bisagrasMaxTecnico = Math.max(nominal, maxTecnico);
     state.bisagrasTotal      = nominal;
     state.bisagrasCalculadas = nominal;
-    state.bisagras           = String(nominal);
 
     renderWidgetBisagras(false);
 }
@@ -611,7 +688,6 @@ function resetearWidgetBisagras() {
     state.bisagrasMaxTecnico = 0;
     state.bisagrasTotal      = 0;
     state.bisagrasCalculadas = 0;
-    state.bisagras           = '';
 
     if (elementos.bisagrasWidget) elementos.bisagrasWidget.classList.remove('activo');
     if (elementos.bisagrasNominalInfo) {
@@ -625,7 +701,6 @@ function resetearWidgetBisagras() {
     if (elementos.bisagrasMenos) elementos.bisagrasMenos.disabled = true;
     if (elementos.bisagrasmas)   elementos.bisagrasmas.disabled   = true;
     if (elementos.bisagrasMecanizadoPrecio) elementos.bisagrasMecanizadoPrecio.textContent = '';
-    if (elementos.bisagrasAdvertencia) elementos.bisagrasAdvertencia.textContent = '';
 
     const labelEl = document.getElementById('bisagrasLabel');
     if (labelEl) labelEl.classList.add('disabled');
@@ -639,7 +714,6 @@ function actualizarSinMecanizado(e) {
     if (state.sinMecanizado) {
         state.bisagrasExtras = 0;
         state.bisagrasTotal  = state.bisagrasCalculadas || state.bisagrasNominal;
-        state.bisagras       = String(state.bisagrasTotal);
 
         elementos.bisagrasWidget?.classList.remove('activo');
         elementos.bisagrasWidget?.classList.add('deshabilitado');
@@ -648,7 +722,6 @@ function actualizarSinMecanizado(e) {
         if (elementos.bisagrasNominalInfo)
             elementos.bisagrasNominalInfo.textContent = 'Marco limpio — sin mecanizado';
         actualizarPrecioBisagrasExtra();
-        if (elementos.bisagrasAdvertencia) elementos.bisagrasAdvertencia.textContent = '';
     } else {
         elementos.bisagrasWidget?.classList.remove('deshabilitado');
         if (state.alturaReal > 0 && state.alturaValido) {
@@ -715,7 +788,6 @@ function cambiarBisagrasExtra(delta) {
 
     state.bisagrasExtras = nuevo - state.bisagrasNominal;
     state.bisagrasTotal  = nuevo;
-    state.bisagras       = String(nuevo);
 
     if (elementos.bisagrasNum) elementos.bisagrasNum.textContent = nuevo;
     if (elementos.bisagrasMenos) elementos.bisagrasMenos.disabled = nuevo <= state.bisagrasNominal;
@@ -743,7 +815,6 @@ function actualizarPrecioBisagrasExtra() {
     } else {
         elementos.bisagrasMecanizadoPrecio.textContent = '';
     }
-    if (elementos.bisagrasAdvertencia) elementos.bisagrasAdvertencia.textContent = '';
 }
 
 // ==========================================
@@ -958,7 +1029,6 @@ function ejecutarReset() {
     state.bisagrasTotal      = 0;
     state.bisagrasMaxTecnico = 0;
     state.bisagrasCalculadas = 0;
-    state.bisagras           = '';
     state.sinMecanizado      = false;
     state.adjuntarBisagras   = null;
     state.tirador = false;

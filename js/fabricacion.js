@@ -120,10 +120,13 @@ function resetearFabState() {
     fabState.b2 = CONFIG.bisagras_B2_defecto;
     fabState.csEditables = calcularCsDefault();
 
-    // Tirador por defecto: opuesto a las bisagras, Z centrado
+    // Tirador por defecto: la primera posición que QUEPA, en orden
+    // opuesto → arriba → abajo. Preseleccionar siempre 'opuesto' dejaba
+    // marcada una posición imposible en puertas de poca altura.
     if (state.tirador && state.tiradorTipo) {
-        fabState.tiradorPos = 'opuesto';
-        fabState.tiradorZ   = Math.round(state.alturaReal / 2);
+        const disp = posicionesTiradorDisponibles();
+        fabState.tiradorPos = disp[0] || null;
+        fabState.tiradorZ   = calcularZDefault();
     } else {
         fabState.tiradorPos = null;
         fabState.tiradorZ   = null;
@@ -133,7 +136,7 @@ function resetearFabState() {
     // Excepción D35-S: solo existe niquelado → preseleccionado.
     fabState.bisMontaje = null;
     fabState.bisBase    = null;
-    fabState.bisColor   = CONFIG.modelos[state.modelo].tipobisagra === 'D35-S' ? 'niquelado' : null;
+    fabState.bisColor   = CONFIG.modelos[state.modelo]?.tipobisagra === 'D35-S' ? 'niquelado' : null;
 }
 
 function pasarAFabricacion() {
@@ -310,30 +313,44 @@ function renderInputs() {
     // Sección tirador
     let secTirador = '';
     if (tieneTirador) {
+        // Solo se ofrecen las posiciones en que el tirador cabe: 'opuesto' va
+        // en vertical (manda la altura), 'arriba'/'abajo' en horizontal (ancho).
+        const posDisp = posicionesTiradorDisponibles();
         const posBtns = [
             { id: 'opuesto', label: fabState.mano === 'izquierda' ? '→ Derecha' : '← Izquierda' },
             { id: 'arriba',  label: '↑ Arriba' },
             { id: 'abajo',   label: '↓ Abajo'  }
-        ].map(op =>
+        ].filter(op => posDisp.includes(op.id)).map(op =>
             `<button class="fab-pos-btn${fabState.tiradorPos === op.id ? ' selected' : ''}"
                 data-pos="${op.id}">${op.label}</button>`
         ).join('');
+
+        // Nota de las posiciones descartadas, para que no parezca un fallo.
+        const dimMin = tiradorDimMin(state.tiradorTipo);
+        const notaPos = posDisp.length === 3 ? '' :
+            `<p class="fab-hint" style="margin:6px 0 0;">` +
+            (posDisp.length === 0
+                ? `Ningún lado admite este tirador: necesita ${dimMin} mm.`
+                : `Solo se muestran los lados de ${dimMin} mm o más.`) +
+            `</p>`;
 
         const zVisible = fabState.tiradorPos !== null;
         const zLabel   = fabState.tiradorPos === 'opuesto'
             ? 'Z — desde abajo'
             : 'Z — desde izquierda';
-        const zMax = fabState.tiradorPos === 'opuesto' ? state.alturaReal : state.anchoReal;
+        // Z se mide al CENTRO del tirador: mismo margen arriba que abajo.
+        const zMin = tiradorZMin(state.tiradorTipo);
+        const zMax = (fabState.tiradorPos === 'opuesto' ? state.alturaReal : state.anchoReal) - zMin;
 
         secTirador = `
             <div class="fab-separador"></div>
             <div class="fab-grupo-label">Posición del tirador</div>
-            <div class="fab-pos-btns">${posBtns}</div>
+            <div class="fab-pos-btns">${posBtns}</div>${notaPos}
             <div class="fab-input-grupo" id="fabZGroup" style="display:${zVisible ? 'block' : 'none'}">
                 <label>${zLabel}
                     <div class="fab-mm-row">
                         <input type="number" id="fabTiradorZ"
-                            value="${fabState.tiradorZ ?? ''}" min="20" max="${zMax}" step="5">
+                            value="${fabState.tiradorZ ?? ''}" min="${zMin}" max="${zMax}" step="5">
                         <span>mm</span>
                     </div>
                 </label>
@@ -342,7 +359,7 @@ function renderInputs() {
         secTirador = `
             <div class="fab-separador"></div>
             <div class="fab-grupo-label">Cotas tirador</div>
-            <p style="margin:6px 0 0;font-size:0.95rem;font-weight:600;color:#2c3e50;">
+            <p style="margin:6px 0 0;font-size:0.95rem;font-weight:600;color:#2D3A4B;">
                 Sin tirador mecanizado</p>`;
     }
 
@@ -366,16 +383,45 @@ function renderInputs() {
 }
 
 // Devuelve el largo real del tirador activo en mm (primer número de la string de medidas)
+// Largo REAL de fabricación (CONFIG.tiradores[x].largoMm). No parsear 'medidas':
+// ahí el primer número es la sección (37, 48), no el largo del corte (150).
 function getTiradorLargoMm() {
-    if (!state.tiradorTipo) return 63;
-    const medidas = CONFIG.tiradores[state.tiradorTipo]?.medidas || '126 × 35 mm';
-    return parseInt(medidas) || 63;
+    return CONFIG.tiradores[state.tiradorTipo]?.largoMm || 126;
+}
+
+// Posiciones en que cabe el tirador con las medidas actuales.
+function posicionesTiradorDisponibles() {
+    if (!state.tiradorTipo) return [];
+    return tiradorPosicionesValidas(state.tiradorTipo, state.alturaReal, state.anchoReal);
 }
 
 function clamp(val, min, max) { return Math.max(min, Math.min(max, val)); }
 
+// Largo del tirador EN EL DIBUJO: px fijos, no escalados. Se acota al 60 % del
+// lado en que se apoya para que no lo desborde en puertas muy estrechas.
+const TIRADOR_PX = 40;
+function tiradorLargoPx(lado, dW, dH) {
+    const ladoUtil = (lado === 'arriba' || lado === 'abajo') ? dW : dH;
+    return Math.min(TIRADOR_PX, ladoUtil * 0.6);
+}
+
 // Redondeo a 2 decimales (evita 100.00000001 de coma flotante)
 function r2(v) { return Math.round(v * 100) / 100; }
+
+// Los inputs de cotas se corrigen por código cuando el valor queda fuera de
+// rango. NO se usa 'change': el navegador lo dispara comparando con el último
+// valor que confirmó el USUARIO, no con el que escribimos nosotros, así que al
+// reescribir el mismo valor inválido no vuelve a dispararse y la casilla se
+// queda con el número incorrecto.
+// 'blur' se dispara siempre al salir del campo → un único camino, sin estado
+// oculto del navegador. Enter fuerza el blur para que también valide al pulsarlo.
+function onCotaChange(el, handler) {
+    if (!el) return;
+    el.addEventListener('blur', handler);
+    el.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+    });
+}
 
 function bindFabInputs() {
     document.querySelectorAll('.fab-mano-btn').forEach(btn => {
@@ -387,7 +433,7 @@ function bindFabInputs() {
         });
     });
 
-    document.getElementById('fabB1')?.addEventListener('change', e => {
+    onCotaChange(document.getElementById('fabB1'), e => {
         const gaps   = state.bisagrasTotal - 1;
         const maxB1  = state.alturaReal - CONFIG.bisagras_B_minimo - gaps * CONFIG.bisagras_C_minimo;
         fabState.b1  = r2(clamp(parseNum(e.target.value) || CONFIG.bisagras_B_minimo,
@@ -397,7 +443,7 @@ function bindFabInputs() {
         renderFabSVGs();
     });
 
-    document.getElementById('fabB2')?.addEventListener('change', e => {
+    onCotaChange(document.getElementById('fabB2'), e => {
         const gaps   = state.bisagrasTotal - 1;
         const maxB2  = state.alturaReal - CONFIG.bisagras_B_minimo - gaps * CONFIG.bisagras_C_minimo;
         fabState.b2  = r2(clamp(parseNum(e.target.value) || CONFIG.bisagras_B_minimo,
@@ -408,7 +454,7 @@ function bindFabInputs() {
     });
 
     document.querySelectorAll('.fab-c-edit').forEach(input => {
-        input.addEventListener('change', e => {
+        onCotaChange(input, e => {
             const idx   = parseInt(e.target.dataset.cidx);
             const gaps  = state.bisagrasTotal - 1;
             // Máximo: deja al menos C_minimo para cada uno de los demás gaps
@@ -433,13 +479,13 @@ function bindFabInputs() {
         });
     });
 
-    document.getElementById('fabTiradorZ')?.addEventListener('change', e => {
-        const largo  = getTiradorLargoMm();
-        const mitad  = Math.ceil(largo / 2);
+    onCotaChange(document.getElementById('fabTiradorZ'), e => {
+        const zMin   = tiradorZMin(state.tiradorTipo);
         const maxDim = fabState.tiradorPos === 'opuesto' ? state.alturaReal : state.anchoReal;
-        fabState.tiradorZ = clamp(parseInt(e.target.value) || mitad, mitad, maxDim - mitad);
-        e.target.value = fabState.tiradorZ;
+        fabState.tiradorZ = clamp(parseInt(e.target.value) || zMin, zMin, maxDim - zMin);
         renderFabSVGs();
+        e.target.value = fabState.tiradorZ;   // se escribe al final: la casilla
+                                              // siempre refleja el valor guardado
     });
 }
 
@@ -475,7 +521,7 @@ function actualizarCn() {
 // ==========================================
 // SVG HELPERS
 // ==========================================
-const C_FRAME = '#2c3e50';
+const C_FRAME = '#2D3A4B';
 const C_DIM   = '#1a1a1a';
 const C_TIR   = '#1a1a2e';
 
@@ -614,7 +660,7 @@ function svgDimV(x, y1, y2, name, value, side, showValue = true) {
     return s;
 }
 
-function svgDimH(x1, x2, y, name, value, above) {
+function svgDimH(x1, x2, y, value, above) {
     const arw  = 7;    // flechas más grandes
     const midX = (x1 + x2) / 2;
     const ty   = above ? y - 12 : y + 14;
@@ -695,7 +741,7 @@ function generarSVGTrasera() {
     const yX    = mano === 'izquierda' ? dX - 30 : dX + dW + 30;
     const ySide = mano === 'izquierda' ? 'left'   : 'right';
     s += svgDimV(yX, dY, dY + dH, '', alturaReal, ySide, true);
-    s += svgDimH(dX, dX + dW, dY + dH + 27, '', anchoReal, false);
+    s += svgDimH(dX, dX + dW, dY + dH + 27, anchoReal, false);
 
     if (!mano) {
         s += svgText(VW/2, VH - 18, 'Selecciona el lado de las bisagras', 9, '#aaa', false);
@@ -723,7 +769,13 @@ function generarSVGFrontal() {
 
     const fr = 20;
     const lado = getTiradorLado();
-    const TL   = 126 * scale; // largo tirador escalado
+    // El croquis NO está a escala: representa los elementos que intervienen.
+    // El grosor de perfil (fr), los círculos de bisagra (bisR) y el tirador se
+    // dibujan en PÍXELES FIJOS para que se lean bien, iguales para los tres
+    // tiradores y para cualquier medida. Solo las cotas numéricas son reales.
+    // No usar aquí getTiradorLargoMm() ni multiplicar por scale: ese valor es
+    // para cálculo (cota Z y límites). Mismo criterio en pdfVitrinas.js.
+    const TL   = tiradorLargoPx(lado, dW, dH);
     const TG   = 9;           // grosor visual fijo
 
     let tiradorSVG = '';
@@ -743,11 +795,11 @@ function generarSVGFrontal() {
         } else if (lado === 'arriba') {
             const xc = dX + fabState.tiradorZ * scale;
             tx = xc - TL / 2; ty = dY - TG / 2; tw = TL; th = TG;
-            zDimSVG = svgDimH(dX, xc, dY - TG/2 - 22, 'Z', fabState.tiradorZ, true);
+            zDimSVG = svgDimH(dX, xc, dY - TG/2 - 22, fabState.tiradorZ, true);
         } else if (lado === 'abajo') {
             const xc = dX + fabState.tiradorZ * scale;
             tx = xc - TL / 2; ty = dY + dH - TG / 2; tw = TL; th = TG;
-            zDimSVG = svgDimH(dX, xc, dY + dH + TG/2 + 22, 'Z', fabState.tiradorZ, false);
+            zDimSVG = svgDimH(dX, xc, dY + dH + TG/2 + 22, fabState.tiradorZ, false);
         }
 
         tiradorSVG = `<rect x="${tx}" y="${ty}" width="${tw}" height="${th}"
@@ -767,7 +819,7 @@ function generarSVGFrontal() {
             ? 'Selecciona mano y posición del tirador'
             : 'Sin tirador mecanizado';
         const msgSz    = (state.tirador && state.tiradorTipo) ? 9 : 13;
-        const msgColor = (state.tirador && state.tiradorTipo) ? '#aaa' : '#2c3e50';
+        const msgColor = (state.tirador && state.tiradorTipo) ? '#aaa' : '#2D3A4B';
         const msgBold  = !(state.tirador && state.tiradorTipo);
         s += svgText(VW/2, VH - 16, msg, msgSz, msgColor, msgBold);
     }
@@ -791,7 +843,7 @@ function renderBisagras() {
         return;
     }
 
-    const tipoBis = CONFIG.modelos[state.modelo].tipobisagra;
+    const tipoBis = CONFIG.modelos[state.modelo]?.tipobisagra;
 
     // Estado 3 — KABI/HAVA: posición fija, nada que seleccionar. Solo informar.
     // Datos ya decididos en el formulario anterior (modelo + acabado).
@@ -896,7 +948,7 @@ function abrirZoomMontajes() {
 function bisagrasCompletas() {
     if (state.adjuntarBisagras !== true) return true;
     // KABI/HAVA: posición fija, sin selecciones → siempre completas
-    const tipoBis = CONFIG.modelos[state.modelo].tipobisagra;
+    const tipoBis = CONFIG.modelos[state.modelo]?.tipobisagra;
     if (tipoBis === 'KABI' || tipoBis === 'HAVA') return true;
     return fabState.bisMontaje && fabState.bisBase && fabState.bisColor;
 }

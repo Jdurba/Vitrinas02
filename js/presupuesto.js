@@ -1,7 +1,7 @@
 // ==========================================
 // PRESUPUESTO — Configurador de Vitrinas
-//   · Carga de VitrinasPrecios.csv (ISO-8859-1, ;)
-//   · Cálculo por escalones ancho×alto (al alza)
+//   · Carga de TarifaVitrinas.csv (UTF-8 BOM o ISO-8859-1, ;)
+//   · Cálculo por escalones ancho×alto (al alza; se muestra alto×ancho)
 //   · Composición de código y denominación Odoo
 //   · Vista de presupuesto (pantalla completa)
 // ==========================================
@@ -90,7 +90,7 @@ function buscarTarifa(perfil, grupoAcabado, grupoVidrio, ancho, alto) {
     }
 
     const fila = filasAncho.find(f => f.alto === altoEsc);
-    return { consultar: false, tarifa: fila.tarifa, escalon: `${anchoEsc} × ${altoEsc} mm` };
+    return { consultar: false, tarifa: fila.tarifa };
 }
 
 // ── Carga y parseo de TarifaExtras.csv ──────────────────────────
@@ -201,16 +201,18 @@ function buscarTirador(tiradorTipo, acabadoCodigo) {
     if (tir.consultar) return tir;   // repintable/ESP → sin precio, no se suma mecanizado
     const mec = buscarMecanizado('VV.MEC.T');
     const precioMec = (mec.encontrado && !mec.consultar) ? mec.tarifa : 0;
-    return { ...tir, tarifa: tir.tarifa + precioMec, tarifaMecanizado: precioMec };
+    return { ...tir, tarifa: tir.tarifa + precioMec };
 }
 
 // ── Composición de código y denominación Odoo ───────────────────
-// Código: VV.{codeTipo}{codeVidrio}.{codAcabado}  ej: VV.0101.A.PM
+// Código: VV.{codeTipo}{00|01}.{familiaAcabado}   ej: VV.0101.L
+// Agrupa a propósito: el acabado concreto, el color de vidrio y las medidas
+// las aportan la denominación y las observaciones (90 códigos en total).
 function componerCodigo() {
-    const m  = CONFIG.modelos[state.modelo];
-    const a  = CONFIG.acabados[state.acabado];
-    const cv = state.vidrioMontado ? CONFIG.coloresVidrio[state.colorVidrio] : null;
-    return `VV.${m.codeTipo}${cv ? cv.codeVidrio : '00'}.${a.codigo}`;
+    const m     = CONFIG.modelos[state.modelo];
+    const a     = CONFIG.acabados[state.acabado];
+    const letra = CONFIG.codeAcabPorGrupo[a.grupoPrecio] || 'E';
+    return `VV.${m.codeTipo}${state.vidrioMontado ? '01' : '00'}.${letra}`;
 }
 
 function componerDenominacion() {
@@ -232,12 +234,12 @@ function componerObservaciones() {
         : `${state.bisagrasTotal} Mecanizados de Bisagra${ladoTxt}`;
 
     const partes = [
-        `Medidas: ${state.anchoReal} x ${state.alturaReal} mm`
+        `Medidas: ${state.alturaReal} x ${state.anchoReal} mm`
     ];
 
     // El vidrio solo se pide (y por tanto se acota) si es montado.
     if (state.vidrioMontado === true) {
-        partes.push(`Vidrio: ${state.vidrioAncho} x ${state.vidrioAlto} mm`);
+        partes.push(`Vidrio: ${state.vidrioAlto} x ${state.vidrioAncho} mm`);
     }
 
     partes.push(bisagrasTxt);
@@ -265,7 +267,7 @@ function calcularPresupuestoCompleto() {
         grupoAcabado,
         grupoVidrio,
         cantidad:  state.cantidad,   // nº de vitrinas
-        lineas:    [],               // cada línea: { codigo, denom, cantidad, precioUnit, importe, dto, consultar, tipo }
+        lineas:    [],               // cada línea: { tipo, codigo, denom, cantidad, precioUnit, importe, dto, consultar }
         consultar: false,            // true si alguna línea de la vitrina obliga a consultar
         total:     0
     };
@@ -286,8 +288,7 @@ function calcularPresupuestoCompleto() {
             precioUnit,
             importe,
             dto:        o.dto || 0,
-            consultar,
-            copia:      o.copia !== undefined ? o.copia : (o.codigo || '')
+            consultar
         });
         if (importe) r.total += importe;
     };
@@ -303,7 +304,6 @@ function calcularPresupuestoCompleto() {
         const t = buscarTarifa(state.modelo, grupoAcabado, grupoVidrio, state.anchoReal, state.alturaReal);
         addLinea({ tipo: 'vitrina', codigo: componerCodigo(), denom: componerDenominacion(),
                    cantidad: nVitrinas, precioUnit: t.consultar ? 0 : t.tarifa, consultar: t.consultar });
-        r.escalon = t.escalon || '';
     }
 
     // ── (2) OBSERVACIONES (informativa, sin precio ni cantidad) ──
@@ -396,8 +396,12 @@ function fallbackCopia(texto, onOk) {
 
 // ── Vista de presupuesto (informe hoja A4, lenguaje ecosistema) ─
 async function mostrarPresupuesto() {
+    // Ambas cargas son obligatorias: init() intenta cargarExtras() pero traga el
+    // error, así que sin este await EXTRAS puede seguir a null y buscarExtra
+    // reventaría al calcular bisagras, base o tirador.
     try {
         await cargarTarifas();
+        await cargarExtras();
     } catch (e) {
         aviso(`Error al cargar la tarifa de precios:\n${e.message}`);
         return;
@@ -441,23 +445,22 @@ function pintarInforme(r) {
         `<div class="campo-informe"><label>${l}</label><span class="valor">${v}</span></div>`;
 
     document.getElementById('presuDatos').innerHTML =
-        (state.numPedido ? dato('Nº Pedido', state.numPedido) : '') +
-        (state.cliente ? dato('Cliente / Ref.', state.cliente) : '') +
+        dato('Nº Pedido', state.numPedido || '—') +
+        dato('Cliente / Ref.', state.cliente || '—') +
         dato('Modelo', state.modelo + ' — ' + m.nombre) +
         dato('Acabado', a.nombre) +
         (state.acabado === 'ESP' && state.acabadoEspecial ? dato('Acabado especial', state.acabadoEspecial) : '') +
-        dato('Medidas vitrina', state.anchoReal + ' × ' + state.alturaReal + ' mm') +
-        dato('Medida vidrio', state.vidrioAncho + ' × ' + state.vidrioAlto + ' mm') +
+        dato('Medidas vitrina', state.alturaReal + ' × ' + state.anchoReal + ' mm') +
+        dato('Medida vidrio', state.vidrioAlto + ' × ' + state.vidrioAncho + ' mm') +
         dato('Vidrio montado', state.vidrioMontado ? 'Sí — ' + CONFIG.coloresVidrio[state.colorVidrio].nombre : 'No') +
         (state.colorVidrio === 'especial' && state.vidrioEspecial ? dato('Vidrio especial', state.vidrioEspecial) : '') +
         dato('Bisagras', state.bisagrasTotal + (state.sinMecanizado ? ' (sin mecanizar)' : (state.bisagrasExtras > 0 ? ' (' + state.bisagrasExtras + ' extra)' : ''))) +
         dato('Tirador', state.tirador && state.tiradorTipo ? CONFIG.tiradores[state.tiradorTipo].medidas : 'No') +
         dato('Cantidad', state.cantidad + ' ud.');
 
-    // Artículos: recorre r.lineas[]. Cada línea con botón de copia del código.
-    const btnCopia = (valor) =>
-        `<button type="button" class="btn-copia" data-copia="${String(valor).replace(/"/g, '&quot;')}"
-                 title="Copiar" data-html2canvas-ignore>📋</button>`;
+    // Artículos: recorre r.lineas[]. Las celdas copiables llevan data-copia
+    // con el texto crudo (sin badges ni markup) y se copian con un clic.
+    const esc = (v) => String(v).replace(/"/g, '&quot;');
 
     const celUnit = (l) => l.consultar
         ? '<span class="incluido">consultar</span>'
@@ -469,10 +472,12 @@ function pintarInforme(r) {
     let filas = '';
     for (const l of r.lineas) {
         const dtoTxt = l.dto ? ` <span class="dto-badge">Dto ${l.dto}%</span>` : '';
+        // La denominación solo es copiable en la vitrina: la de los complementos
+        // viene del CSV y ya existe en Odoo con su propia descripción.
+        const denomAttr = l.tipo === 'vitrina' ? ` data-copia="${esc(l.denom)}"` : '';
         filas += `<tr>
-            <td class="copia" data-html2canvas-ignore>${l.codigo ? btnCopia(l.copia) : ''}</td>
-            <td class="cod">${l.codigo}</td>
-            <td>${l.denom}${dtoTxt}</td>
+            <td class="cod" data-copia="${esc(l.codigo)}">${l.codigo}</td>
+            <td${denomAttr}>${l.denom}${dtoTxt}</td>
             <td class="num">${l.cantidad}</td>
             <td class="num">${celUnit(l)}</td>
             <td class="num">${celPrecio(l)}</td>
@@ -481,9 +486,8 @@ function pintarInforme(r) {
         // Observaciones: van justo tras la línea de vitrina, ligadas a ella.
         if (l.tipo === 'vitrina' && r.observaciones) {
             filas += `<tr class="obs">
-                <td class="copia" data-html2canvas-ignore>${btnCopia(r.observaciones)}</td>
                 <td></td>
-                <td colspan="4">${r.observaciones}</td>
+                <td colspan="4" data-copia="${esc(r.observaciones)}">${r.observaciones}</td>
             </tr>`;
         }
     }
@@ -501,15 +505,17 @@ function pintarInforme(r) {
         motivoEl.style.display = 'none';
     }
 
-    // Delegación: copiar al portapapeles con feedback ✓
+    // Delegación: un clic en celda copiable → portapapeles, con flash verde.
+    // Si el usuario ha seleccionado texto a mano, el clic no copia.
     document.getElementById('presuArticulos').onclick = (e) => {
-        const btn = e.target.closest('.btn-copia');
-        if (!btn) return;
-        const texto = btn.dataset.copia;
+        const td = e.target.closest('td[data-copia]');
+        if (!td) return;
+        const sel = window.getSelection();
+        if (sel && !sel.isCollapsed) return;
+        const texto = td.dataset.copia;
         const ok = () => {
-            const orig = btn.textContent;
-            btn.textContent = '✓'; btn.classList.add('ok');
-            setTimeout(() => { btn.textContent = orig; btn.classList.remove('ok'); }, 1200);
+            td.classList.add('copiada');
+            setTimeout(() => td.classList.remove('copiada'), 900);
         };
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(texto).then(ok).catch(() => fallbackCopia(texto, ok));
@@ -583,13 +589,13 @@ async function generarPDFPresupuesto() {
 
         // Parámetros a la derecha de la imagen
         const datos = [];
-        if (state.numPedido) datos.push(['Nº Pedido', state.numPedido]);
-        if (state.cliente)   datos.push(['Cliente / Ref.', state.cliente]);
+        datos.push(['Nº Pedido', state.numPedido || '—']);
+        datos.push(['Cliente / Ref.', state.cliente || '—']);
         datos.push(['Modelo', state.modelo + ' — ' + m.nombre]);
         datos.push(['Acabado', a.nombre]);
         if (state.acabado === 'ESP' && state.acabadoEspecial) datos.push(['Acabado especial', state.acabadoEspecial]);
-        datos.push(['Medidas vitrina', state.anchoReal + ' × ' + state.alturaReal + ' mm']);
-        datos.push(['Medida vidrio', state.vidrioAncho + ' × ' + state.vidrioAlto + ' mm']);
+        datos.push(['Medidas vitrina', state.alturaReal + ' × ' + state.anchoReal + ' mm']);
+        datos.push(['Medida vidrio', state.vidrioAlto + ' × ' + state.vidrioAncho + ' mm']);
         datos.push(['Vidrio montado', state.vidrioMontado ? 'Sí — ' + CONFIG.coloresVidrio[state.colorVidrio].nombre : 'No']);
         if (state.colorVidrio === 'especial' && state.vidrioEspecial) datos.push(['Vidrio especial', state.vidrioEspecial]);
         datos.push(['Bisagras', String(state.bisagrasTotal) + (state.sinMecanizado ? ' (sin mecanizar)' : (state.bisagrasExtras > 0 ? ' (' + state.bisagrasExtras + ' extra)' : ''))]);
