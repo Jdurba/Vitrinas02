@@ -10,7 +10,13 @@
     window.ADINOR_CONFIG = {
         tituloModal: 'Adinor · Vitrinas'
     };
-    window.VERSION_APP = 'V.02';
+    window.VERSION_APP = 'V.04';
+
+    // Un único sitio define la versión; la app la muestra donde haga falta.
+    document.addEventListener('DOMContentLoaded', () => {
+        document.querySelectorAll('.app-version')
+            .forEach(el => { el.textContent = window.VERSION_APP; });
+    });
     </script>
 
     <!-- Carga del JS compartido -->
@@ -84,6 +90,11 @@
             font-size: 1.4rem;
             font-weight: 300;
             margin: 0;
+        }
+
+        .app-version {
+            font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em;
+            opacity: 0.65; vertical-align: middle; margin-left: 6px;
         }
 
         .header-content {
@@ -674,6 +685,10 @@
             color: var(--color-text);
         }
 
+        .bisagras-nominal-info.aviso {
+            color: #c0392b;
+        }
+
         .bisagras-counter {
             display: flex;
             align-items: center;
@@ -812,7 +827,8 @@
             color: var(--color-text-light);
         }
 
-        .datos-pedido input {
+        .datos-pedido input,
+        .datos-pedido textarea {
             width: 100%;
             padding: 8px 10px;
             border: 2px solid #e0e0e0;
@@ -823,8 +839,20 @@
             transition: border-color 0.2s;
         }
 
-        .datos-pedido input:focus {
+        .datos-pedido input:focus,
+        .datos-pedido textarea:focus {
             border-color: var(--color-secondary);
+        }
+
+        .datos-pedido textarea {
+            resize: vertical;
+            min-height: 56px;
+        }
+
+        .nota-contador {
+            align-self: flex-end;
+            font-size: 0.7rem;
+            color: var(--color-text-light);
         }
 
         .bisagras-info {
@@ -1521,6 +1549,119 @@
             letter-spacing: 0.02em;
         }
 
+        /* Importar configuración — mismo peso visual que Resetear, sin competir
+           con el botón principal. */
+        .btn-importar {
+            width: 100%;
+            margin-top: 8px;
+            padding: 10px;
+            background: #fff;
+            color: var(--color-primary);
+            border: 2px dashed #c3ccd8;
+            border-radius: var(--border-radius);
+            font-size: 0.9rem; font-weight: 600; font-family: inherit;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .btn-importar:hover { background: #f2f6fb; border-color: var(--color-secondary); }
+
+        /* Banda de configuración importada (solo lectura) */
+        #fabBandaImportado {
+            display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
+            padding: 8px 16px;
+            background: #fff4d6;
+            border-bottom: 1px solid #e3c55e;
+        }
+        .fab-imp-aviso {
+            font-size: 0.85rem; font-weight: 700; color: #7a5c00;
+            display: flex; flex-direction: column; gap: 1px;
+        }
+        .fab-imp-origen { font-weight: 400; font-size: 0.75rem; color: #8a6d10; }
+        .fab-imp-campos {
+            display: flex; align-items: flex-end; gap: 12px;
+            margin-left: auto; flex: 1 1 460px; max-width: 620px;
+        }
+        .fab-imp-campos label {
+            display: flex; flex-direction: column; gap: 3px; flex: 1 1 0;
+            font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.03em; color: #7a5c00;
+        }
+        .fab-imp-campos input {
+            width: 100%; height: 38px;
+            padding: 0 10px; border: 1px solid #d3b74e; border-radius: 4px;
+            font-size: 0.9rem; font-family: inherit; background: #fff;
+        }
+        .fab-imp-campos input:focus { outline: 2px solid #d3b74e; outline-offset: -1px; }
+        /* Mismo aspecto que Presupuesto y Generar PDF: es una acción de barra,
+           no un campo. La altura se fija a mano (no se deja al cálculo del
+           navegador) para que coincida exactamente con la de los inputs. */
+        /* El botón vive dentro de un label igual que los campos, con un hueco
+           en blanco donde ellos llevan su etiqueta. Así los tres bloques tienen
+           la misma estructura y la alineación no depende del cálculo del flex. */
+        .fab-imp-campos label.fab-imp-accion { flex: 0 0 auto; }
+
+        .fab-imp-salir {
+            height: 38px; min-width: 115px;
+            padding: 0 16px;
+            font-size: 0.85rem; font-family: inherit;
+            letter-spacing: 0.03em;
+            color: #fff; background: #4a5b7a;
+            border: none; border-radius: 4px;
+            cursor: pointer; white-space: nowrap;
+            transition: background 0.2s ease, transform 0.2s ease;
+        }
+        .fab-imp-salir:hover { background: #5a6ea8; transform: translateX(2px); }
+        /* Atenuación de los controles bloqueados: el disabled lo pone el JS,
+           esto solo lo hace evidente de un vistazo. */
+        .fab-importado #fabInputs,
+        .fab-importado #fabBisagras { opacity: 0.72; }
+        /* Las tarjetas de montaje son <div>: no admiten disabled, así que el
+           aspecto de "no tocable" hay que darlo aquí para que se comporten
+           igual que los botones de mano o los campos de cotas. */
+        .fab-importado .fab-bis-card { cursor: default; }
+        .fab-importado .fab-bis-card:hover { border-color: #e0e0e0; }
+        .fab-importado .fab-bis-card.selected:hover { border-color: var(--color-secondary); }
+
+        /* Observaciones de cabecera — bloque propio, entre parámetros y aviso.
+           No va en el grid de artículos: acompaña al documento, no define la vitrina. */
+        .informe-fuera-medida {
+            margin: 8px 0 12px;
+            padding: 6px 12px;
+            background: #fdecec;
+            border: 1px solid #c0392b;
+            border-radius: 4px;
+            color: #c0392b; font-weight: bold; font-size: 12px; text-align: center;
+        }
+        .informe-nota {
+            margin: 12px 0 0;
+            padding: 8px 12px;
+            background: #f7f9fc;
+            border: 1px solid #cbd5e1;
+            border-left: 3px solid #2D3A4B;
+            border-radius: 4px;
+            font-size: 12px; line-height: 1.35;
+        }
+        .informe-nota .nota-label {
+            display: block;
+            font-weight: bold; color: #2D3A4B;
+            font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+            margin-bottom: 3px;
+        }
+        /* Copiable con un clic, igual que las celdas de la tabla. */
+        .informe-nota [data-copia] {
+            display: block; cursor: pointer; position: relative;
+            padding: 2px 20px 2px 2px;
+            white-space: pre-wrap;
+            transition: background 0.12s ease;
+        }
+        .informe-nota [data-copia]:hover { background: #dbe7f3; }
+        .informe-nota [data-copia]:hover::after {
+            content: '📋'; position: absolute; right: 4px; top: 2px;
+            font-size: 10px; opacity: 0.45; pointer-events: none;
+        }
+        .informe-nota [data-copia].copiada { background: #cfe6cf; }
+        .informe-nota [data-copia].copiada::after { content: '✓'; opacity: 0.8; }
+
         /* Parámetros — etiqueta izq / valor der */
         .informe-params { display: flex; flex-direction: column; gap: 0; padding: 0 4px; }
                                 .campo-informe {
@@ -1649,7 +1790,7 @@
                 <img src="https://raw.githubusercontent.com/Jdurba/Vitrinas/main/Imagenes/LogoAdinorBlanco.png" 
                     alt="Adinor Logo" 
                     class="header-logo">
-                <h1>Configurador de Vitrinas de Aluminio</h1>
+                <h1>Configurador de Vitrinas de Aluminio <span class="app-version" id="appVersionHeader"></span></h1>
                 <button id="cab-btn" class="btn-grad" onclick="volverAlMenu()">← Volver al menú</button>
             </div>
         </div>
@@ -1944,7 +2085,7 @@
                                 <input type="number" id="alturaDescuento" name="alturaDescuento" autocomplete="off" value="2" min="0" onkeydown="if(event.key==='Enter')this.blur()">
                             </div>
                             <div class="medidas-input real-fabricar">
-                                <input type="number" id="alturaReal" name="alturaReal" class="readonly" onkeydown="if(event.key==='Enter')this.blur()">
+                                <input type="number" id="alturaReal" name="alturaReal" class="readonly" autocomplete="off" onkeydown="if(event.key==='Enter')this.blur()">
                                 <span class="medidas-mensaje" id="alturaMensaje"></span>
                             </div>
                             
@@ -1957,7 +2098,7 @@
                                 <input type="number" id="anchoDescuento" name="anchoDescuento" autocomplete="off" value="2" min="0" onkeydown="if(event.key==='Enter')this.blur()">
                             </div>
                             <div class="medidas-input real-fabricar">
-                                <input type="number" id="anchoReal" name="anchoReal" class="readonly" onkeydown="if(event.key==='Enter')this.blur()">
+                                <input type="number" id="anchoReal" name="anchoReal" class="readonly" autocomplete="off" onkeydown="if(event.key==='Enter')this.blur()">
                                 <span class="medidas-mensaje" id="anchoMensaje"></span>
                             </div>
                         </div>
@@ -2141,12 +2282,18 @@
 
                     <div class="datos-pedido">
                         <div class="form-group">
-                            <label for="numPedido">Nº Pedido <span class="opcional">(opcional)</span></label>
+                            <label for="numPedido">Nº Pedido <span class="opcional">(obligatorio para exportar)</span></label>
                             <input type="text" id="numPedido" name="numPedido" placeholder="Ej: S2200" autocomplete="off">
                         </div>
                         <div class="form-group">
-                            <label for="cliente">Cliente / Referencia <span class="opcional">(opcional)</span></label>
+                            <label for="cliente">Cliente / Referencia <span class="opcional">(obligatorio para exportar)</span></label>
                             <input type="text" id="cliente" name="cliente" placeholder="Ej: Integrale, S.A." autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label for="nota">Observaciones <span class="opcional">(opcional)</span></label>
+                            <textarea id="nota" name="nota" rows="3" maxlength="250"
+                                      placeholder="Nota que acompaña al documento"></textarea>
+                            <span class="nota-contador" id="notaContador">0 / 250</span>
                         </div>
                     </div>
 
@@ -2157,6 +2304,11 @@
                     <button class="btn-reset" id="btnReset">
                         Resetear Datos
                     </button>
+
+                    <button type="button" class="btn-importar" id="btnImportar">
+                        📂 Importar configuración
+                    </button>
+                    <input type="file" id="inputImportar" accept=".advit,.txt" style="display:none">
                 </div>
             </div>
         </div>
@@ -2164,11 +2316,12 @@
 
 <script src="https://jdurba.github.io/General/jspdf_umd_min.js"></script>
 <script src="js/autotable_min.js?v=1"></script>
-<script src="js/config.js?v=6" defer></script>
-<script src="js/configurador.js?v=9" defer></script>
-<script src="js/fabricacion.js?v=10" defer></script>
-<script src="js/pdfVitrinas.js?v=11" defer></script>
-<script src="js/presupuesto.js?v=16" defer></script>
+<script src="js/config.js?v=8" defer></script>
+<script src="js/configurador.js?v=12" defer></script>
+<script src="js/fabricacion.js?v=13" defer></script>
+<script src="js/pdfVitrinas.js?v=14" defer></script>
+<script src="js/presupuesto.js?v=19" defer></script>
+<script src="js/intercambio.js?v=11" defer></script>
 
 
 <!-- ==========================================
@@ -2181,11 +2334,15 @@
         <img class="fab-barra-logo"
              src="https://jdurba.github.io/General/img/LogoAdinorBlanco.png"
              alt="ADINOR" />
-        <h2>Vitrinas · Hoja de fabricación</h2>
+        <h2>Vitrinas · Hoja de fabricación <span class="app-version" id="appVersionFab"></span></h2>
         <button class="fab-btn-volver" id="fabBtnVolver">⪡ Atrás</button>
         <button class="fab-btn-pdf-top" id="fabBtnPresupuesto" disabled title="Selecciona las bisagras">🧾 Presupuesto</button>
         <button class="fab-btn-pdf-top" id="fabBtnPDF" disabled title="Selecciona las bisagras">📄 Generar PDF</button>
+        <button type="button" class="fab-btn-pdf-top" id="fabBtnExportar" title="Exportar configuración para enviar">💾 Exportar</button>
     </div>
+
+    <!-- Solo visible tras importar: aviso de solo lectura + los dos campos editables -->
+    <div id="fabBandaImportado" style="display:none"></div>
 
     <!-- Layout: izquierda (inputs) + derecha (SVGs) -->
     <div class="fab-layout">
@@ -2246,12 +2403,15 @@
                 <span class="informe-fecha" id="presuFecha"></span>
             </div>
         </div>
+        <div class="informe-fuera-medida" id="presuFueraMedida" style="display:none"></div>
 
         <div class="bloque-titulo">Parámetros seleccionados</div>
         <div class="presu-params-grid">
             <div class="presu-params-img" id="presuImagen"></div>
             <div class="informe-params" id="presuDatos"></div>
         </div>
+
+        <div class="informe-nota" id="presuNota" style="display:none"></div>
 
         <div class="informe-aviso-templado">IMPORTANTE: Todos los cálculos están realizados para emplear vidrio templado de 4 mm</div>
 
